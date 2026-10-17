@@ -76,7 +76,7 @@ def resolve_engine():
 
 
 def wine_environment(prefix: Path, icd: Path, frameworks: Path, kosmic: Path, wine_root: Path,
-                     metal_hud: bool = False) -> dict:
+                     metal_hud: bool = False, msync: bool = False) -> dict:
     environment = os.environ.copy()
     for inherited in ("WINEPREFIX", "WINEDEBUG", "WINEDLLOVERRIDES", "WINEDLLPATH",
                       "WINEMSYNC", "SikarugirAppWine11", "CX_FWD_COMPAT_GL_CTX"):
@@ -85,6 +85,8 @@ def wine_environment(prefix: Path, icd: Path, frameworks: Path, kosmic: Path, wi
     environment["WINEBOOT_HIDE_DIALOG"] = "1"
     # Rosetta hides AVX unless asked. DOOM (2016) uses it.
     environment["ROSETTA_ADVERTISE_AVX"] = "1"
+    if msync:
+        environment["WINEMSYNC"] = "1"
     # Wine's built-in C++ runtime leaves DOOM jumping through a null pointer.
     # The Microsoft 2015–2022 x64 DLLs in the prefix have to win.
     environment["WINEDLLOVERRIDES"] = ",".join((
@@ -115,9 +117,87 @@ def ensure_prefix(wine: Path, environment: dict) -> None:
     prefix = Path(environment["WINEPREFIX"])
     prefix.mkdir(parents=True, exist_ok=True)
     system32 = prefix / "drive_c/windows/system32"
-    if (prefix / "system.reg").is_file() and system32.is_dir() and any(system32.iterdir()):
+    if not ((prefix / "system.reg").is_file() and system32.is_dir() and any(system32.iterdir())):
+        subprocess.run([str(wine), "wineboot", "--init"], env=environment, check=True)
+    ensure_microsoft_crt(wine, environment)
+
+
+# Wine keeps these on raw HID. DOOM reads XInput, and the SDL mapping is what
+# presents a pad as an XInput gamepad. Xbox pads already take that path.
+SONY_GAMEPADS = (
+    "054c/0ce6",  # DualSense
+    "054c/0df2",  # DualSense Edge
+    "054c/05c4",  # DualShock 4
+    "054c/09cc",  # DualShock 4
+    "054c/0ba0",  # DualShock 4 wireless adaptor
+)
+
+
+CRT_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+
+def microsoft_crt_present(prefix: Path) -> bool:
+    system32 = prefix / "drive_c/windows/system32"
+    runtime = system32 / "vcruntime140.dll"
+    extra = system32 / "vcruntime140_1.dll"
+    if not runtime.is_file() or not extra.is_file() or extra.stat().st_size < 20000:
+        return False
+    return b"Wine builtin DLL" not in runtime.read_bytes()
+
+
+def ensure_microsoft_crt(wine: Path, environment: dict) -> None:
+    """Install the Microsoft x64 C++ runtime into this prefix.
+
+    Wine ships its own vcruntime140.dll. DOOM (2016) crashes a few seconds
+    after launch when that builtin is used. The official redistributable is
+    downloaded from Microsoft and is not part of the app.
+    """
+    prefix = Path(environment["WINEPREFIX"])
+    if microsoft_crt_present(prefix):
         return
-    subprocess.run([str(wine), "wineboot", "--init"], env=environment, check=True)
+    cache = SUPPORT / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    redist = cache / "vc_redist.x64.exe"
+    if not redist.is_file() or redist.stat().st_size < 1_000_000:
+        request = urllib.request.Request(CRT_URL, headers={"User-Agent": "doom-2016-macos"})
+        with urllib.request.urlopen(request, timeout=60) as response, redist.open("wb") as output:
+            shutil.copyfileobj(response, output)
+    quiet = environment.copy()
+    quiet["WINEDEBUG"] = "-all"
+    completed = subprocess.run(
+        [str(wine), str(redist), "/install", "/quiet", "/norestart"],
+        env=quiet, check=False, stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    if completed.returncode not in (0, 1638, 3010):
+        raise ValueError(f"The Microsoft C++ runtime installer exited {completed.returncode}")
+    system32 = prefix / "drive_c/windows/system32"
+    cache_root = prefix / "drive_c/ProgramData/Package Cache"
+    copied = 0
+    with tempfile.TemporaryDirectory(prefix="doom-crt-") as folder:
+        extracted = Path(folder)
+        for cab in cache_root.rglob("cab1.cab"):
+            subprocess.run(["bsdtar", "-xf", str(cab), "-C", str(extracted)], check=False)
+        for path in extracted.rglob("*.dll_amd64"):
+            name = path.name[: -len("_amd64")]
+            if name.lower() == "ucrtbase.dll":
+                continue
+            shutil.copyfile(path, system32 / name)
+            copied += 1
+    if copied == 0 or not microsoft_crt_present(prefix):
+        raise FileNotFoundError("The Microsoft C++ runtime did not install")
+
+
+def map_playstation_pads(wine: Path, environment: dict) -> None:
+    for device in SONY_GAMEPADS:
+        key = rf"HKLM\System\CurrentControlSet\Services\winebus\Devices\{device}"
+        completed = subprocess.run(
+            [str(wine), "reg", "add", key, "/v", "Hidraw", "/t", "REG_DWORD", "/d", "0", "/f"],
+            env=environment, check=False, capture_output=True, text=True,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            print(f"Controller mapping for {device} was not saved: {detail}", flush=True)
 
 
 def fetch_latest_wine() -> tuple[str, str]:
@@ -276,9 +356,10 @@ def setup_wine(force: bool = False) -> str:
     prefix = SUPPORT / "prefix"
     environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root)
     system32 = prefix / "drive_c/windows/system32"
-    if not ((prefix / "system.reg").is_file() and system32.is_dir() and any(system32.iterdir())):
+    prefix_ready = (prefix / "system.reg").is_file() and system32.is_dir() and any(system32.iterdir())
+    if not prefix_ready or not microsoft_crt_present(prefix):
         print("status Creating the Wine environment", flush=True)
-        ensure_prefix(wine_root / "bin/wine", environment)
+    ensure_prefix(wine_root / "bin/wine", environment)
     print(f"ready {version}", flush=True)
     return version
 
@@ -304,12 +385,16 @@ def locate_game(path: Path) -> Path:
     raise FileNotFoundError(f"No {EXE_NAME} in {path}")
 
 
-def launch(game: Path, fullscreen: bool, metal_hud: bool, skip_intro: bool, dev_mode: bool) -> int:
+DISPLAY_MODES = {"window": "0", "fullscreen": "1", "borderless": "2"}
+
+
+def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode: bool,
+           msync: bool, playstation_icons: bool) -> int:
     game = locate_game(game)
     wine_root, icd, frameworks, kosmic = resolve_engine()
     SUPPORT.mkdir(parents=True, exist_ok=True)
     prefix = SUPPORT / "prefix"
-    environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root, metal_hud)
+    environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root, metal_hud, msync)
     wine = wine_root / "bin/wine"
     wineserver = wine_root / "bin/wineserver"
 
@@ -318,13 +403,20 @@ def launch(game: Path, fullscreen: bool, metal_hud: bool, skip_intro: bool, dev_
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, stop)
+    # wineserver keeps the sync mode it was started with, so replace it first.
+    subprocess.run([str(wineserver), "-k"], env=environment, check=False)
     ensure_prefix(wine, environment)
+    map_playstation_pads(wine, environment)
     exe = game / EXE_NAME
-    command = [str(wine), str(exe), "+set", "r_fullscreen", "1" if fullscreen else "0"]
+    command = [str(wine), str(exe), "+set", "r_fullscreen", DISPLAY_MODES[display]]
     if skip_intro:
         command += ["+set", "com_skipIntroVideo", "1"]
     if dev_mode:
         command += ["+set", "devMode_enable", "1", "+set", "savegame_ignoreUnverified", "1"]
+        # Dev mode prints engine warnings and waits for a key before the mission.
+        command += ["+set", "com_hidePrintWarnings", "1", "+set", "com_skipKeyPressOnLoadScreens", "1"]
+    if playstation_icons:
+        command += ["+set", "swf_platformOverride", "1"]
     print(f"Engine: {wine_root}", flush=True)
     print(f"Game: {game}", flush=True)
     print(f"KosmicKrisp: {kosmic}", flush=True)
@@ -349,12 +441,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game", type=Path, default=None,
                         help="GOG folder that contains DOOMx64vk.exe and goggame-*.info")
-    parser.add_argument("--display", default="window", choices=("window", "fullscreen"),
-                        help="Start in a window or full screen")
+    parser.add_argument("--display", default="window", choices=tuple(DISPLAY_MODES),
+                        help="Start in a window, borderless, or exclusive full screen")
     parser.add_argument("--metal-hud", action="store_true", help="Show the Metal performance HUD")
     parser.add_argument("--skip-intro", action="store_true", help="Skip the introductory videos")
     parser.add_argument("--dev-mode", action="store_true",
                         help="Enable dev mode and load saves that fail verification")
+    parser.add_argument("--msync", action="store_true", help="Use Wine msync for thread waiting")
+    parser.add_argument("--playstation-icons", action="store_true",
+                        help="Show PlayStation button icons instead of Xbox icons")
     parser.add_argument("--check", action="store_true", help="Create the Wine prefix and print the engine")
     parser.add_argument("--setup-wine", action="store_true",
                         help="Download Wine if needed and create the prefix")
@@ -374,8 +469,9 @@ def main() -> int:
             return check_engine()
         if args.game is None:
             parser.error("--game is required")
-        return launch(args.game, fullscreen=args.display == "fullscreen", metal_hud=args.metal_hud,
-                      skip_intro=args.skip_intro, dev_mode=args.dev_mode)
+        return launch(args.game, display=args.display, metal_hud=args.metal_hud,
+                      skip_intro=args.skip_intro, dev_mode=args.dev_mode, msync=args.msync,
+                      playstation_icons=args.playstation_icons)
     except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Cannot launch: {error}", file=sys.stderr)
         return 1

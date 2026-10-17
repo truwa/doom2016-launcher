@@ -69,7 +69,7 @@ final class LauncherModel: ObservableObject {
         UserDefaults.standard.set(url.path, forKey: "gamePath")
     }
 
-    func play(display: String, metalHud: Bool) {
+    func play(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, playstationIcons: Bool) {
         guard let gameURL, gameReady, !running else { return }
         if !wineReady {
             if wineInstalled {
@@ -88,6 +88,10 @@ final class LauncherModel: ObservableObject {
         process.executableURL = pythonURL
         var arguments = [launcherURL.path, "--game", gameURL.path, "--display", display]
         if metalHud { arguments.append("--metal-hud") }
+        if skipIntro { arguments.append("--skip-intro") }
+        if devMode { arguments.append("--dev-mode") }
+        if msync { arguments.append("--msync") }
+        if playstationIcons { arguments.append("--playstation-icons") }
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -111,7 +115,13 @@ final class LauncherModel: ObservableObject {
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 let text = String(data: handle.availableData, encoding: .utf8) ?? ""
                 guard !text.isEmpty else { return }
-                Task { @MainActor in self?.log += text }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.log += text
+                    for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("status ") {
+                        self.status = String(line.dropFirst("status ".count))
+                    }
+                }
             }
             watchGameWindow()
         } catch {
@@ -486,6 +496,10 @@ struct ContentView: View {
     @AppStorage("displayMode") private var displayMode = "window"
     @AppStorage("showLog") private var showLog = false
     @AppStorage("metalHud") private var metalHud = false
+    @AppStorage("skipIntro") private var skipIntro = false
+    @AppStorage("devMode") private var devMode = false
+    @AppStorage("msync") private var msync = false
+    @AppStorage("playstationIcons") private var playstationIcons = false
     @AppStorage("appearance") private var appearance = "system"
     @State private var folderDetails = false
     @State private var optionsOpen = false
@@ -532,7 +546,7 @@ struct ContentView: View {
                         if model.running {
                             model.stop()
                         } else {
-                            model.play(display: displayMode, metalHud: metalHud)
+                            model.play(display: displayMode, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, playstationIcons: playstationIcons)
                         }
                     }
                     .disabled(model.updating || (!model.running && !model.gameReady))
@@ -555,17 +569,26 @@ struct ContentView: View {
                             Text("Start the game in")
                             Picker("Start the game in", selection: $displayMode) {
                                 Text("Window").tag("window")
+                                Text("Borderless").tag("borderless")
                                 Text("Full Screen").tag("fullscreen")
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
-                            .frame(maxWidth: 280)
+                            .frame(maxWidth: 420)
                         }
                         HStack(spacing: 20) {
                             Toggle("Show log", isOn: $showLog)
                             Toggle("Metal HUD", isOn: $metalHud)
                                 .disabled(model.running)
+                            Toggle("Skip intro", isOn: $skipIntro)
+                                .disabled(model.running)
+                            Toggle("Dev mode", isOn: $devMode)
+                                .disabled(model.running)
+                            Toggle("Msync", isOn: $msync)
+                                .disabled(model.running)
                         }
+                        Toggle("PlayStation icons", isOn: $playstationIcons)
+                            .disabled(model.running)
                         HStack {
                             Text(wineLabel).lineLimit(1)
                             Spacer()

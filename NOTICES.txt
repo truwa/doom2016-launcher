@@ -5,6 +5,11 @@ Wine
   Downloaded on first launch from the latest WineHQ macOS build published by Gcenx:
   https://github.com/Gcenx/macOS_Wine_builds/releases/latest
 
+Microsoft Visual C++ 2015–2022
+  Downloaded on first launch from Microsoft and installed into this app's Wine prefix.
+  Wine's own C++ runtime crashes DOOM (2016).
+  https://aka.ms/vs/17/release/vc_redist.x64.exe
+
 KosmicKrisp
   Mesa, MIT
   This app includes the x86_64 compat build v0.1.0 from
