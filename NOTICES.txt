@@ -17,6 +17,10 @@ KosmicKrisp
   It advertises depthBounds and fillModeNonSolid so DOOM (2016) can create a Vulkan device.
   https://docs.mesa3d.org/drivers/kosmickrisp.html
 
+  Downloaded on first use from Heroic's gogdl v1.3.1, MIT.
+  It signs in to the GOG account that owns the game and downloads that copy.
+  https://github.com/Heroic-Games-Launcher/heroic-gogdl
+
 This launcher
   MacGameTest
   https://www.youtube.com/@MacGameTest

@@ -8,14 +8,18 @@ The game stays where the user put it. The Wine prefix lives under
 WineHQ macOS build from Gcenx and creates the prefix.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import platform
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import tarfile
+import time
 import tempfile
 import urllib.request
 
@@ -188,16 +192,109 @@ def ensure_microsoft_crt(wine: Path, environment: dict) -> None:
         raise FileNotFoundError("The Microsoft C++ runtime did not install")
 
 
-def map_playstation_pads(wine: Path, environment: dict) -> None:
+def map_playstation_pads(wine: Path, environment: dict, mark=None) -> None:
+    prefix = Path(environment["WINEPREFIX"])
+    stamp = prefix / ".controller-mapping"
+    expected = "\n".join(SONY_GAMEPADS) + "\n"
+    if stamp.is_file() and stamp.read_text(encoding="utf-8") == expected:
+        if mark is not None:
+            mark("controllers already mapped")
+        return
+    started = time.monotonic()
+    lines = ["Windows Registry Editor Version 5.00", ""]
     for device in SONY_GAMEPADS:
-        key = rf"HKLM\System\CurrentControlSet\Services\winebus\Devices\{device}"
-        completed = subprocess.run(
-            [str(wine), "reg", "add", key, "/v", "Hidraw", "/t", "REG_DWORD", "/d", "0", "/f"],
-            env=environment, check=False, capture_output=True, text=True,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
-            print(f"Controller mapping for {device} was not saved: {detail}", flush=True)
+        lines.append(f"[HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\winebus\\Devices\\{device}]")
+        lines.append('"Hidraw"=dword:00000000')
+        lines.append("")
+    reg = prefix / "controller-mapping.reg"
+    reg.write_text("\n".join(lines), encoding="utf-16")
+    quiet = environment.copy()
+    quiet["WINEDEBUG"] = "-all"
+    completed = subprocess.run(
+        [str(wine), "regedit", "/s", str(reg)],
+        env=quiet, check=False, capture_output=True, text=True,
+    )
+    if completed.returncode == 0:
+        stamp.write_text(expected, encoding="utf-8")
+    elif mark is not None:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        mark(f"controller mapping was not saved: {detail}")
+    if mark is not None:
+        mark(f"controllers mapped ({time.monotonic() - started:.2f}s)")
+
+
+GOG_APP_ID = "1390579243"
+GOGDL_VERSION = "v1.3.1"
+GOGDL_FILES = {
+    "arm64": ("gogdl_macos_arm64", "33a6d9b329c35f1caa7968009bf2f4f0a6f57cd00f749a4d2cb2204f3e794d2e"),
+    "aarch64": ("gogdl_macos_arm64", "33a6d9b329c35f1caa7968009bf2f4f0a6f57cd00f749a4d2cb2204f3e794d2e"),
+    "x86_64": ("gogdl_macos_x86_64", "9f78f5916141692704f9587e6519082abc2b12c5f8825548fe4d1dee1e46180c"),
+}
+GOG_PROGRESS = re.compile(r"= Progress: ([0-9.]+)")
+
+
+def ensure_gogdl() -> Path:
+    name, digest = GOGDL_FILES.get(platform.machine(), GOGDL_FILES["arm64"])
+    destination = SUPPORT / "bin" / name
+    if destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest() == digest:
+        return destination
+    print("status Downloading the GOG installer tool", flush=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    url = f"https://github.com/Heroic-Games-Launcher/heroic-gogdl/releases/download/{GOGDL_VERSION}/{name}"
+    request = urllib.request.Request(url, headers={"User-Agent": "doom-2016-macos"})
+    partial = destination.with_suffix(".partial")
+    with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as output:
+        shutil.copyfileobj(response, output)
+    if hashlib.sha256(partial.read_bytes()).hexdigest() != digest:
+        partial.unlink(missing_ok=True)
+        raise ValueError("The GOG installer tool download did not match")
+    partial.chmod(0o755)
+    partial.replace(destination)
+    return destination
+
+
+def gog_auth(code: str) -> None:
+    tool = ensure_gogdl()
+    SUPPORT.mkdir(parents=True, exist_ok=True)
+    auth = SUPPORT / "gog-auth.json"
+    completed = subprocess.run(
+        [str(tool), "--auth-config-path", str(auth), "auth", "--code", code],
+        check=False, capture_output=True, text=True,
+    )
+    if completed.returncode != 0 or not auth.is_file():
+        raise ValueError("GOG did not accept the sign-in")
+    auth.chmod(0o600)
+    print("status Signed in to GOG.", flush=True)
+
+
+def gog_download(folder: Path) -> int:
+    folder.mkdir(parents=True, exist_ok=True)
+    auth = SUPPORT / "gog-auth.json"
+    if not auth.is_file():
+        raise FileNotFoundError("Sign in to GOG before installing the game")
+    tool = ensure_gogdl()
+    print("status Downloading DOOM (2016) from GOG", flush=True)
+    command = [
+        str(tool), "--auth-config-path", str(auth), "download", GOG_APP_ID,
+        "--path", str(folder), "--platform", "windows", "--lang", "en-US", "--skip-dlcs",
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    reported = -1
+    assert process.stdout is not None
+    for line in process.stdout:
+        match = GOG_PROGRESS.search(line)
+        if match:
+            percent = int(float(match.group(1)))
+            if percent != reported:
+                reported = percent
+                print(f"progress {percent}", flush=True)
+            continue
+        if "token" in line.lower():
+            continue
+        text = line.strip()
+        if text:
+            print(text, flush=True)
+    return process.wait()
 
 
 def fetch_latest_wine() -> tuple[str, str]:
@@ -388,13 +485,99 @@ def locate_game(path: Path) -> Path:
 DISPLAY_MODES = {"window": "0", "fullscreen": "1", "borderless": "2"}
 
 
+def kill_prefix_wine(prefix: Path, wine_root: Path) -> None:
+    """Stop Wine processes left behind after wineserver has already exited."""
+    needles = (str(prefix), str(wine_root))
+    listing = subprocess.run(
+        ["ps", "-ax", "-o", "pid=,command="],
+        capture_output=True, text=True, check=False,
+    )
+    for line in listing.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        pid_text, _, command = stripped.partition(" ")
+        if "winedevice" not in command and "wineserver" not in command and not any(needle in command for needle in needles):
+            continue
+        try:
+            pid = int(pid_text)
+        except ValueError:
+            continue
+        if pid == os.getpid():
+            continue
+        probe = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd,txt", "-Fn"],
+            capture_output=True, text=True, check=False,
+        )
+        if any(needle in probe.stdout for needle in needles):
+            os.kill(pid, signal.SIGKILL)
+
+
+def ensure_chroma_library(game: Path) -> bool:
+    """DOOM calls into this library during startup. A missing file jumps to address 0."""
+    dll = game / "CChromaEditorLibrary.dll"
+    if dll.is_file():
+        return False
+    disabled = game / "CChromaEditorLibrary.dll.disabled"
+    if disabled.is_file():
+        disabled.replace(dll)
+        return True
+    return False
+
+
+def is_problem(text: str) -> bool:
+    folded = text.lower()
+    if "exited" in folded:
+        tail = folded.strip().split()[-1]
+        try:
+            return int(tail) != 0
+        except ValueError:
+            return True
+    return any(needle in folded for needle in ("cannot", "failed", "not found", "error", "exception", "not saved"))
+
+
 def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode: bool,
-           msync: bool, playstation_icons: bool) -> int:
+           msync: bool, playstation_icons: bool, debug: bool = False, log_level: str = "normal") -> int:
+    if log_level not in {"errors", "normal", "verbose"}:
+        log_level = "normal"
+    origin = time.monotonic()
+    log_file = None
+    if debug:
+        SUPPORT.mkdir(parents=True, exist_ok=True)
+        log_file = (SUPPORT / "launch.log").open("w", encoding="utf-8", buffering=1)
+    seen: dict[str, int] = {}
+
+    def emit(line: str, *, problem: bool = False) -> None:
+        if log_level == "errors" and not problem:
+            return
+        if log_level == "normal" and not problem and not line.startswith("log "):
+            return
+        count = seen.get(line, 0) + 1
+        seen[line] = count
+        if count > 2 or (count == 2 and log_level != "verbose"):
+            return
+        shown = line if count == 1 else f"{line} (repeating)"
+        print(shown, flush=True)
+        if log_file is not None and count == 1:
+            log_file.write(line + "\n")
+            log_file.flush()
+
+    def mark(label: str) -> None:
+        emit(f"log {time.monotonic() - origin:7.2f}s {label}", problem=is_problem(label))
+
     game = locate_game(game)
+    if ensure_chroma_library(game):
+        mark("restored CChromaEditorLibrary.dll")
+    elif not (game / "CChromaEditorLibrary.dll").is_file():
+        mark("CChromaEditorLibrary.dll is missing")
+    mark(f"game folder {game}")
     wine_root, icd, frameworks, kosmic = resolve_engine()
     SUPPORT.mkdir(parents=True, exist_ok=True)
     prefix = SUPPORT / "prefix"
     environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root, metal_hud, msync)
+    environment["WINEDEBUG"] = "-all"
+    if debug:
+        mark(f"full log {SUPPORT / 'launch.log'}")
     wine = wine_root / "bin/wine"
     wineserver = wine_root / "bin/wineserver"
 
@@ -405,8 +588,13 @@ def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode
     signal.signal(signal.SIGTERM, stop)
     # wineserver keeps the sync mode it was started with, so replace it first.
     subprocess.run([str(wineserver), "-k"], env=environment, check=False)
+    kill_prefix_wine(prefix, wine_root)
+    mark("wineserver stopped")
     ensure_prefix(wine, environment)
-    map_playstation_pads(wine, environment)
+    mark("prefix ready")
+    map_playstation_pads(wine, environment, mark if log_level == "verbose" else None)
+    if log_level != "verbose":
+        mark("controllers mapped")
     exe = game / EXE_NAME
     command = [str(wine), str(exe), "+set", "r_fullscreen", DISPLAY_MODES[display]]
     if skip_intro:
@@ -417,10 +605,25 @@ def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode
         command += ["+set", "com_hidePrintWarnings", "1", "+set", "com_skipKeyPressOnLoadScreens", "1"]
     if playstation_icons:
         command += ["+set", "swf_platformOverride", "1"]
-    print(f"Engine: {wine_root}", flush=True)
-    print(f"Game: {game}", flush=True)
-    print(f"KosmicKrisp: {kosmic}", flush=True)
-    completed = subprocess.run(command, cwd=game, env=environment)
+    if log_level == "verbose":
+        emit(f"Engine: {wine_root}")
+        emit(f"Game: {game}")
+        emit(f"KosmicKrisp: {kosmic}")
+    game_environment = environment
+    if debug:
+        game_environment = environment.copy()
+        game_environment["WINEDEBUG"] = "+timestamp,+pid,+tid,+all"
+    mark("starting DOOMx64vk.exe")
+    # Leave the game on this process's own output. Capturing it through a pipe
+    # fills the pipe and the game never opens its window.
+    completed = subprocess.run(
+        command, cwd=game, env=game_environment,
+        stdout=log_file if debug else None,
+        stderr=log_file if debug else None,
+    )
+    mark(f"DOOMx64vk.exe exited {completed.returncode}")
+    if log_file is not None:
+        log_file.close()
     return completed.returncode
 
 
@@ -450,6 +653,10 @@ def main() -> int:
     parser.add_argument("--msync", action="store_true", help="Use Wine msync for thread waiting")
     parser.add_argument("--playstation-icons", action="store_true",
                         help="Show PlayStation button icons instead of Xbox icons")
+    parser.add_argument("--log-level", default="normal", choices=("errors", "normal", "verbose"),
+                        help="errors shows problems, normal adds launcher steps, verbose adds the game console")
+    parser.add_argument("--debug", action="store_true",
+                        help="Write a timestamped Wine trace to the launch log")
     parser.add_argument("--check", action="store_true", help="Create the Wine prefix and print the engine")
     parser.add_argument("--setup-wine", action="store_true",
                         help="Download Wine if needed and create the prefix")
@@ -457,11 +664,19 @@ def main() -> int:
                         help="Download the latest Wine again and keep the prefix")
     parser.add_argument("--kill-wine", action="store_true",
                         help="Stop the Wine processes for this launcher")
+    parser.add_argument("--gog-auth", default=None, help="Exchange a GOG sign-in code")
+    parser.add_argument("--gog-download", type=Path, default=None,
+                        help="Install the owned GOG copy of DOOM (2016) into this folder")
     args = parser.parse_args()
     try:
         if args.kill_wine:
             kill_wine()
             return 0
+        if args.gog_auth:
+            gog_auth(args.gog_auth)
+            return 0
+        if args.gog_download is not None:
+            return gog_download(args.gog_download)
         if args.setup_wine or args.update_wine:
             setup_wine(force=args.update_wine)
             return 0
@@ -471,7 +686,8 @@ def main() -> int:
             parser.error("--game is required")
         return launch(args.game, display=args.display, metal_hud=args.metal_hud,
                       skip_intro=args.skip_intro, dev_mode=args.dev_mode, msync=args.msync,
-                      playstation_icons=args.playstation_icons)
+                      playstation_icons=args.playstation_icons, debug=args.debug,
+                      log_level=args.log_level)
     except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Cannot launch: {error}", file=sys.stderr)
         return 1

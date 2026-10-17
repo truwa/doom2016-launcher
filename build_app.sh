@@ -31,6 +31,7 @@ cp "$KOSMIC_SRC/libvulkan_kosmickrisp.dylib" "$APP/Contents/Frameworks/"
 cp "$ROOT/vulkan/kosmickrisp_icd.json" "$APP/Contents/Resources/vulkan/icd.d/"
 cp "$ROOT/launch.py" "$ROOT/NOTICES.txt" "$APP/Contents/Resources/engine/"
 cp "$ROOT/NOTICES.txt" "$APP/Contents/Resources/NOTICES.txt"
+cp "$ROOT/macos/cover.jpg" "$APP/Contents/Resources/cover.jpg"
 chmod 755 "$APP/Contents/Frameworks/libvulkan_kosmickrisp.dylib"
 
 if [[ ! -x "$PYTHON_DIR/bin/python3" ]]; then
@@ -51,7 +52,7 @@ mkdir -p "$APP/Contents/Resources/python"
 rsync -a "$PYTHON_DIR/" "$APP/Contents/Resources/python/"
 
 swiftc -parse-as-library -O -o "$APP/Contents/MacOS/Doom" \
-    -framework SwiftUI -framework AppKit \
+    -framework SwiftUI -framework AppKit -framework WebKit \
     "$ROOT/macos/DoomApp.swift"
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
