@@ -1,0 +1,17 @@
+DOOM (2016) is not included. Point the launcher at the GOG folder you own.
+
+Wine
+  LGPL-2.1-or-later
+  Downloaded on first launch from the latest WineHQ macOS build published by Gcenx:
+  https://github.com/Gcenx/macOS_Wine_builds/releases/latest
+
+KosmicKrisp
+  Mesa, MIT
+  This app includes the x86_64 compat build v0.1.0 from
+  https://github.com/truwa/kosmickrisp-compat/releases/tag/v0.1.0
+  It advertises depthBounds and fillModeNonSolid so DOOM (2016) can create a Vulkan device.
+  https://docs.mesa3d.org/drivers/kosmickrisp.html
+
+This launcher
+  MacGameTest
+  https://www.youtube.com/@MacGameTest
