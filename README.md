@@ -4,7 +4,14 @@ This is a small launcher for the GOG version of DOOM (2016). It is a bare-minimu
 
 You can point it at a GOG folder you already have, or install that copy from the app menu. The first launch downloads Wine and sets up the Windows side, including Microsoft's C++ runtime. On Apple silicon it also asks to install Rosetta if the Mac does not have it.
 
-The app is signed, but it is not notarized, so the first open is a right-click and Open.
+## Install and run
+
+1. Download the zip from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest) and unzip it.
+2. Right-click `doom2016.app` and choose Open. The app is signed, but Apple has not notarized it, so a normal double-click is blocked the first time.
+3. If macOS still refuses, open System Settings, go to Privacy & Security, and allow the app there. The button usually says Open Anyway.
+4. On Apple silicon, say yes if it asks to install Rosetta. That needs an administrator password.
+5. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu. The first Play downloads Wine, which takes a few minutes.
+6. Press Play.
 
 Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. If you want PlayStation button icons, that switch is in Options.
 
@@ -13,8 +20,6 @@ Macs before the M5 need a patched KosmicKrisp. Without it, DOOM dies while creat
 Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
 
 There is also a Metal performance HUD, a way to try another Vulkan game with the same setup, and a check for a newer launcher.
-
-Grab it from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest).
 
 ## Credits and licenses
 
