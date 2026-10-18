@@ -348,6 +348,75 @@ def gog_download(folder: Path) -> int:
     return process.wait()
 
 
+def gog_save_sync(folder: Path, force: str | None) -> int:
+    auth = SUPPORT / "gog-auth.json"
+    if not auth.is_file():
+        raise FileNotFoundError("Sign in to GOG before syncing saves")
+    if not folder.is_dir():
+        raise FileNotFoundError("No DOOM save folder yet")
+    for junk in folder.rglob(".DS_Store"):
+        junk.unlink(missing_ok=True)
+    tool = ensure_gogdl()
+    stamp_path = SUPPORT / "gog-save-sync.ts"
+    timestamp = stamp_path.read_text(encoding="utf-8").strip() if stamp_path.is_file() else "0"
+    if not timestamp:
+        timestamp = "0"
+    command = [
+        str(tool), "--auth-config-path", str(auth), "save-sync", str(folder), GOG_APP_ID,
+        "--os", "windows", "--ts", timestamp, "--name", "saveFolders",
+    ]
+    if force == "upload":
+        command.append("--force-upload")
+    elif force == "download":
+        command.append("--force-download")
+    print("status Syncing saves with GOG…", flush=True)
+    completed = subprocess.run(command, capture_output=True, text=True)
+    output = f"{completed.stderr or ''}\n{completed.stdout or ''}"
+    for line in output.splitlines():
+        text = line.strip()
+        if not text or "token" in text.lower():
+            continue
+        if any(word in text for word in (
+            "Uploading", "Downloading", "DELETING", "conflict", "Nothing", "No files", "error", "Error", "Done",
+        )):
+            print(f"log {text}", flush=True)
+    failed = completed.returncode != 0 or any(
+        phrase in output for phrase in ("There was an error", "Failed to commit", "Downloading file failed")
+    )
+    if failed:
+        print("status GOG save sync failed.", flush=True)
+        return completed.returncode or 1
+    conflict = "Files in conflict" in output and force not in {"upload", "download"}
+    if conflict:
+        print("status The saves on this Mac and the cloud both changed.", flush=True)
+        return 2
+    new_ts = None
+    for token in (completed.stdout or "").split():
+        try:
+            if float(token) > 1_000_000:
+                new_ts = token
+        except ValueError:
+            continue
+    if new_ts:
+        stamp_path.write_text(new_ts + "\n", encoding="utf-8")
+    uploaded = "Uploading files" in output or "No files in cloud, uploading" in output
+    downloaded = "Downloading files" in output or "No files locally, downloading" in output
+    if uploaded and downloaded:
+        summary = "Saves were sent both ways."
+    elif uploaded:
+        summary = "Saves from this Mac were uploaded to GOG."
+    elif downloaded:
+        summary = "Saves from GOG were downloaded to this Mac."
+    elif "Nothing to do" in output:
+        summary = "Saves are already in sync."
+    else:
+        summary = "Save sync finished."
+    if "DELETING LOCALLY" in output or "DELETING IN CLOUD" in output:
+        summary += " Some files that existed on only one side were removed."
+    print(f"status {summary}", flush=True)
+    return 0
+
+
 def fetch_latest_wine() -> tuple[str, str]:
     request = urllib.request.Request(WINE_RELEASE_API, headers={
         "Accept": "application/vnd.github+json",
@@ -731,6 +800,10 @@ def main() -> int:
     parser.add_argument("--gog-auth", default=None, help="Exchange a GOG sign-in code")
     parser.add_argument("--gog-download", type=Path, default=None,
                         help="Install the owned GOG copy of DOOM (2016) into this folder")
+    parser.add_argument("--gog-save-sync", type=Path, default=None,
+                        help="Sync this DOOM save folder with GOG cloud saves")
+    parser.add_argument("--gog-save-force", choices=("upload", "download"), default=None,
+                        help="Replace one side when the saves are in conflict")
     args = parser.parse_args()
     try:
         if args.kill_wine:
@@ -741,6 +814,8 @@ def main() -> int:
             return 0
         if args.gog_download is not None:
             return gog_download(args.gog_download)
+        if args.gog_save_sync is not None:
+            return gog_save_sync(args.gog_save_sync, args.gog_save_force)
         if args.setup_wine or args.update_wine:
             setup_wine(force=args.update_wine)
             return 0

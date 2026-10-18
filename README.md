@@ -19,7 +19,7 @@ Macs before the M5 need a patched KosmicKrisp. Without it, DOOM dies while creat
 
 Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
 
-There is also a Metal performance HUD, a way to try another Vulkan game with the same setup, and a check for a newer launcher.
+There is also a Metal performance HUD, a way to try another Vulkan game with the same setup, a check for a newer launcher, and a GOG save sync in the app menu.
 
 ## Credits and licenses
 
@@ -31,6 +31,6 @@ Microsoft's Visual C++ 2015–2022 runtime is downloaded from Microsoft on that 
 
 KosmicKrisp is part of Mesa and is MIT. The patched build in this app is what lets the game create a Vulkan device on Macs before the M5. Mesa's notes are at [docs.mesa3d.org](https://docs.mesa3d.org/drivers/kosmickrisp.html).
 
-The GOG download tool is [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) v1.3.1 from Heroic Games Launcher, also MIT. It is only used to sign in and download the game you own.
+The GOG download tool is [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) v1.3.1 from Heroic Games Launcher, under GPL-3.0. It is used to sign in, download the game you own, and sync saves when you ask it to.
 
 The launcher itself is MacGameTest. [youtube.com/@MacGameTest](https://www.youtube.com/@MacGameTest)

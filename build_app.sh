@@ -32,6 +32,56 @@ cp "$ROOT/vulkan/kosmickrisp_icd.json" "$APP/Contents/Resources/vulkan/icd.d/"
 cp "$ROOT/launch.py" "$ROOT/NOTICES.txt" "$APP/Contents/Resources/engine/"
 cp "$ROOT/NOTICES.txt" "$APP/Contents/Resources/NOTICES.txt"
 cp "$ROOT/macos/cover.jpg" "$APP/Contents/Resources/cover.jpg"
+# Dock icon: the DOOM title from the cover, on the red field. macOS rounds the corners.
+ICONSET="$ROOT/dist/AppIcon.iconset"
+SOURCE="$ROOT/dist/AppIcon-source.png"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+swift - "$ROOT/macos/cover.jpg" "$SOURCE" << 'EOF'
+import AppKit
+let cover = NSImage(contentsOfFile: CommandLine.arguments[1])!
+let src = NSBitmapImageRep(data: cover.tiffRepresentation!)!
+let x0 = 28, y0 = 18, lw = 292, lh = 146
+let logoRep = NSBitmapImageRep(
+    bitmapDataPlanes: nil, pixelsWide: lw, pixelsHigh: lh,
+    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+    colorSpaceName: .deviceRGB, bytesPerRow: lw * 4, bitsPerPixel: 32)!
+for y in 0..<lh {
+    for x in 0..<lw {
+        let c = src.colorAt(x: x0 + x, y: y0 + y)!
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.usingColorSpace(.deviceRGB)!.getRed(&r, green: &g, blue: &b, alpha: &a)
+        var alpha = (min(g, b) - 0.28) / 0.42
+        if alpha < 0 { alpha = 0 }
+        if alpha > 1 { alpha = 1 }
+        logoRep.setColor(NSColor(calibratedRed: min(1, r + 0.04), green: min(1, g + 0.02), blue: min(1, b), alpha: alpha), atX: x, y: y)
+    }
+}
+let logo = NSImage(size: NSSize(width: lw, height: lh))
+logo.addRepresentation(logoRep)
+let s: CGFloat = 1024
+let image = NSImage(size: NSSize(width: s, height: s))
+image.lockFocus()
+let ctx = NSGraphicsContext.current!.cgContext
+let top = NSColor(calibratedRed: 0.62, green: 0.08, blue: 0.05, alpha: 1)
+let mid = NSColor(calibratedRed: 0.45, green: 0.04, blue: 0.03, alpha: 1)
+let bot = NSColor(calibratedRed: 0.22, green: 0.02, blue: 0.015, alpha: 1)
+let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [bot.cgColor, mid.cgColor, top.cgColor] as CFArray, locations: [0, 0.55, 1])!
+ctx.drawLinearGradient(grad, start: CGPoint(x: s / 2, y: 0), end: CGPoint(x: s / 2, y: s), options: [])
+let targetW = s * 0.78
+let scale = targetW / CGFloat(lw)
+let targetH = CGFloat(lh) * scale
+logo.draw(in: NSRect(x: (s - targetW) / 2, y: (s - targetH) / 2, width: targetW, height: targetH), from: NSRect(x: 0, y: 0, width: lw, height: lh), operation: .sourceOver, fraction: 1)
+image.unlockFocus()
+try! NSBitmapImageRep(data: image.tiffRepresentation!)!.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+EOF
+for size in 16 32 128 256 512; do
+    sips -s format png -z "$size" "$size" "$SOURCE" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -s format png -z "$double" "$double" "$SOURCE" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+rm -rf "$ICONSET" "$SOURCE"
 chmod 755 "$APP/Contents/Frameworks/libvulkan_kosmickrisp.dylib"
 
 if [[ ! -x "$PYTHON_DIR/bin/python3" ]]; then
@@ -64,6 +114,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <string>en</string>
     <key>CFBundleExecutable</key>
     <string>Doom</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.doom2016.macos</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -75,9 +127,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.1</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.6</string>
     <key>NSHighResolutionCapable</key>

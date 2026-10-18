@@ -49,6 +49,7 @@ final class LauncherModel: ObservableObject {
     var logLevel = "normal"
     private var seenLogLines: [String: Int] = [:]
     private var gogUpdateAfterLogin = false
+    private var gogSyncAfterLogin = false
 
     func restore() {
         loadWineVersion()
@@ -97,6 +98,7 @@ final class LauncherModel: ObservableObject {
     func installFromGog() {
         guard !running, !updating else { return }
         gogUpdateAfterLogin = false
+        gogSyncAfterLogin = false
         if gogSignedIn {
             chooseGogDestination()
         } else {
@@ -114,6 +116,7 @@ final class LauncherModel: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         gogUpdateAfterLogin = true
+        gogSyncAfterLogin = false
         if gogSignedIn {
             startGogDownload(gameURL)
         } else {
@@ -133,7 +136,10 @@ final class LauncherModel: ObservableObject {
                 self.status = "GOG sign-in did not finish."
                 return
             }
-            if self.gogUpdateAfterLogin, let gameURL = self.gameURL, self.gameReady {
+            if self.gogSyncAfterLogin {
+                self.gogSyncAfterLogin = false
+                self.startGogSaveSync(force: nil)
+            } else if self.gogUpdateAfterLogin, let gameURL = self.gameURL, self.gameReady {
                 self.startGogDownload(gameURL)
             } else {
                 self.chooseGogDestination()
@@ -697,6 +703,86 @@ final class LauncherModel: ObservableObject {
         return text
     }
 
+    func syncSavesWithGog() {
+        guard !running, !otherRunning, !updating else { return }
+        guard doomSaveFolder() != nil else {
+            status = "There is no DOOM save folder yet."
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Sync DOOM saves with GOG?"
+        alert.informativeText = "The saves on this Mac are sent to your GOG account, and newer cloud saves are downloaded here. A file that exists on only one side can be deleted. Saves written with Dev mode are included."
+        alert.addButton(withTitle: "Sync")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        gogUpdateAfterLogin = false
+        gogSyncAfterLogin = true
+        if gogSignedIn {
+            gogSyncAfterLogin = false
+            startGogSaveSync(force: nil)
+        } else {
+            showGogLogin = true
+        }
+    }
+
+    private func startGogSaveSync(force: String?) {
+        guard let folder = doomSaveFolder() else {
+            status = "There is no DOOM save folder yet."
+            return
+        }
+        updating = true
+        status = "Syncing saves with GOG…"
+        var arguments = ["--gog-save-sync", folder.path]
+        if let force {
+            arguments += ["--gog-save-force", force]
+        }
+        runEngine(arguments) { [weak self] line in
+            guard let self else { return }
+            if line.hasPrefix("status ") {
+                self.status = String(line.dropFirst("status ".count))
+            } else if line.hasPrefix("log ") {
+                self.appendLog(line + "\n")
+            }
+        } onExit: { [weak self] code in
+            guard let self else { return }
+            self.updating = false
+            if code == 2 {
+                self.askWhichSaveToKeep()
+            } else if code != 0, self.status == "Syncing saves with GOG…" {
+                self.status = "GOG save sync failed."
+            }
+        }
+    }
+
+    private func askWhichSaveToKeep() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Both save copies have changed."
+        alert.informativeText = "Keep this Mac uploads these saves and removes cloud files that are not here. Keep the cloud downloads the GOG saves and removes local files that are not in the cloud."
+        alert.addButton(withTitle: "Keep this Mac")
+        alert.addButton(withTitle: "Keep the cloud")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            startGogSaveSync(force: "upload")
+        case .alertSecondButtonReturn:
+            startGogSaveSync(force: "download")
+        default:
+            status = "Save sync was cancelled."
+        }
+    }
+
+    private func doomSaveFolder() -> URL? {
+        let saved = saveFolder()
+        guard saved.path.contains("Saved Games/id Software/DOOM") else { return nil }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: saved.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return saved
+    }
+
     func openSaveFolder() {
         let saved = saveFolder()
         try? FileManager.default.createDirectory(at: saved, withIntermediateDirectories: true)
@@ -1088,6 +1174,11 @@ private let creditBlocks: [CreditBlock] = [
         CreditEntry(text: "Compat build v0.1.0", url: URL(string: "https://github.com/truwa/kosmickrisp-compat/releases/tag/v0.1.0")),
         CreditEntry(text: "github.com/truwa/kosmickrisp-compat", url: URL(string: "https://github.com/truwa/kosmickrisp-compat")),
         CreditEntry(text: "docs.mesa3d.org", url: URL(string: "https://docs.mesa3d.org/drivers/kosmickrisp.html")),
+    ]),
+    CreditBlock(heading: "gogdl", lines: [
+        CreditEntry(text: "GPL-3.0"),
+        CreditEntry(text: "Downloaded on first use"),
+        CreditEntry(text: "Heroic Games Launcher, v1.3.1", url: URL(string: "https://github.com/Heroic-Games-Launcher/heroic-gogdl")),
     ]),
     CreditBlock(heading: "This launcher", lines: [
         CreditEntry(text: "Version \(LauncherModel.appVersion)"),
@@ -1549,6 +1640,8 @@ struct DoomApp: App {
                 Button("Check for Updates") { model.checkApp() }
                     .disabled(model.updating)
                 Button("Open Game Save Folder") { model.openSaveFolder() }
+                Button("Sync saves with GOG") { model.syncSavesWithGog() }
+                    .disabled(model.running || model.otherRunning || model.updating)
                 Button("Credits & Licenses") { model.showCredits = true }
             }
         }
