@@ -79,6 +79,18 @@ def resolve_engine():
     return wine_root, icd, frameworks, kosmic
 
 
+def metal_hud_config_file() -> str | None:
+    """The layout chosen with launchctl setenv MTL_HUD_CONFIG_FILE."""
+    completed = subprocess.run(
+        ["/bin/launchctl", "getenv", "MTL_HUD_CONFIG_FILE"],
+        capture_output=True, text=True, check=False,
+    )
+    chosen = completed.stdout.strip() or os.environ.get("MTL_HUD_CONFIG_FILE", "").strip()
+    if chosen and Path(chosen).is_file():
+        return chosen
+    return None
+
+
 def wine_environment(prefix: Path, icd: Path, frameworks: Path, kosmic: Path, wine_root: Path,
                      metal_hud: bool = False, msync: bool = False) -> dict:
     environment = os.environ.copy()
@@ -111,9 +123,13 @@ def wine_environment(prefix: Path, icd: Path, frameworks: Path, kosmic: Path, wi
     environment["PATH"] = str(wine_root / "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin"
     environment.pop("MTL_HUD_ENABLED", None)
     environment.pop("METAL_HUD", None)
+    environment.pop("MTL_HUD_CONFIG_FILE", None)
     if metal_hud:
         environment["MTL_HUD_ENABLED"] = "1"
         environment["METAL_HUD"] = "1"
+        config = metal_hud_config_file()
+        if config:
+            environment["MTL_HUD_CONFIG_FILE"] = config
     return environment
 
 
@@ -572,7 +588,7 @@ def is_problem(text: str) -> bool:
 
 
 def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, dev_mode: bool,
-           msync: bool, playstation_icons: bool, debug: bool = False, log_level: str = "normal",
+           msync: bool, debug: bool = False, log_level: str = "normal",
            executable: Path | None = None) -> int:
     if log_level not in {"errors", "normal", "verbose"}:
         log_level = "normal"
@@ -653,8 +669,6 @@ def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, d
             command += ["+set", "devMode_enable", "1", "+set", "savegame_ignoreUnverified", "1"]
             # Dev mode prints engine warnings and waits for a key before the mission.
             command += ["+set", "com_hidePrintWarnings", "1", "+set", "com_skipKeyPressOnLoadScreens", "1"]
-        if playstation_icons:
-            command += ["+set", "swf_platformOverride", "1"]
     if log_level == "verbose":
         emit(f"Engine: {wine_root}")
         emit(f"Game: {exe if other_game else game}")
@@ -703,8 +717,6 @@ def main() -> int:
     parser.add_argument("--dev-mode", action="store_true",
                         help="Enable dev mode and load saves that fail verification")
     parser.add_argument("--msync", action="store_true", help="Use Wine msync for thread waiting")
-    parser.add_argument("--playstation-icons", action="store_true",
-                        help="Show PlayStation button icons instead of Xbox icons")
     parser.add_argument("--log-level", default="normal", choices=("errors", "normal", "verbose"),
                         help="errors shows problems, normal adds launcher steps, verbose adds the game console")
     parser.add_argument("--debug", action="store_true",
@@ -737,14 +749,12 @@ def main() -> int:
         if args.exe is not None:
             return launch(None, display=args.display, metal_hud=args.metal_hud,
                           skip_intro=False, dev_mode=False, msync=args.msync,
-                          playstation_icons=False, debug=args.debug,
-                          log_level=args.log_level, executable=args.exe)
+                          debug=args.debug, log_level=args.log_level, executable=args.exe)
         if args.game is None:
             parser.error("--game is required")
         return launch(args.game, display=args.display, metal_hud=args.metal_hud,
                       skip_intro=args.skip_intro, dev_mode=args.dev_mode, msync=args.msync,
-                      playstation_icons=args.playstation_icons, debug=args.debug,
-                      log_level=args.log_level)
+                      debug=args.debug, log_level=args.log_level)
     except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Cannot launch: {error}", file=sys.stderr)
         return 1

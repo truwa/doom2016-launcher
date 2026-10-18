@@ -257,7 +257,7 @@ final class LauncherModel: ObservableObject {
         }
     }
 
-    func play(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, playstationIcons: Bool, logLevel: String) {
+    func play(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, logLevel: String) {
         guard gameReady, !running else { return }
         if !wineReady {
             if wineInstalled {
@@ -268,11 +268,11 @@ final class LauncherModel: ObservableObject {
             return
         }
         requireRosetta { [weak self] in
-            self?.launchDoom(display: display, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, playstationIcons: playstationIcons, logLevel: logLevel)
+            self?.launchDoom(display: display, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, logLevel: logLevel)
         }
     }
 
-    private func launchDoom(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, playstationIcons: Bool, logLevel: String) {
+    private func launchDoom(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, logLevel: String) {
         guard let gameURL, gameReady, !running else { return }
         running = true
         otherRunning = false
@@ -292,7 +292,6 @@ final class LauncherModel: ObservableObject {
         if skipIntro { arguments.append("--skip-intro") }
         if devMode { arguments.append("--dev-mode") }
         if msync { arguments.append("--msync") }
-        if playstationIcons { arguments.append("--playstation-icons") }
         arguments += ["--log-level", logLevel]
         process.arguments = arguments
         let pipe = Pipe()
@@ -1174,7 +1173,6 @@ struct ContentView: View {
     @AppStorage("skipIntro") private var skipIntro = false
     @AppStorage("devMode") private var devMode = false
     @AppStorage("msync") private var msync = false
-    @AppStorage("playstationIcons") private var playstationIcons = false
     @AppStorage("appearance") private var appearance = "system"
     @State private var folderDetails = false
     @State private var optionsOpen = false
@@ -1243,7 +1241,7 @@ struct ContentView: View {
                             if model.running, !model.otherRunning {
                                 model.stop()
                             } else {
-                                model.play(display: displayMode, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, playstationIcons: playstationIcons, logLevel: fullLogging ? "verbose" : logLevel)
+                                model.play(display: displayMode, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, logLevel: fullLogging ? "verbose" : logLevel)
                             }
                         } label: {
                             HStack(spacing: 8) {
@@ -1261,7 +1259,7 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                 }
                 Text(model.status)
-                DisclosureGroup("Try another Vulkan game", isExpanded: $tryAnother) {
+                Foldout("Try another Vulkan game", isExpanded: $tryAnother) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("The last executable stays here. Play starts it. DOOM's display and gameplay options are not applied.")
                             .font(.caption)
@@ -1288,7 +1286,7 @@ struct ContentView: View {
                     }
                     .padding(.top, 4)
                 }
-                DisclosureGroup("Options", isExpanded: $optionsOpen) {
+                Foldout("Options", isExpanded: $optionsOpen) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Text("Appearance")
@@ -1335,8 +1333,6 @@ struct ContentView: View {
                             Toggle("Msync", isOn: $msync)
                                 .disabled(model.running)
                         }
-                        Toggle("PlayStation icons", isOn: $playstationIcons)
-                            .disabled(model.running)
                         HStack {
                             Text(wineLabel).lineLimit(1)
                             Spacer()
@@ -1395,7 +1391,7 @@ struct ContentView: View {
                 CreditsView { model.showCredits = false }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
         .background(WindowHeight(height: contentHeight))
         .frame(minWidth: 640)
         .onPreferenceChange(ContentHeight.self) { height in
@@ -1659,6 +1655,39 @@ private struct LogText: NSViewRepresentable {
     }
 }
 
+private struct Foldout<Content: View>: View {
+    var title: String
+    @Binding var isExpanded: Bool
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        _isExpanded = isExpanded
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 14)
+                    Text(title)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if isExpanded {
+                content()
+            }
+        }
+    }
+}
+
 private struct ContentHeight: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -1676,14 +1705,17 @@ private struct WindowHeight: NSViewRepresentable {
         DispatchQueue.main.async {
             guard height > 200, let window = view.window else { return }
             if let applied = context.coordinator.applied, abs(applied - height) < 2 { return }
+            let current = window.contentRect(forFrameRect: window.frame)
+            guard abs(current.height - height) >= 2 else {
+                context.coordinator.applied = height
+                return
+            }
             var frame = window.frame
-            let content = window.contentRect(forFrameRect: frame)
-            let delta = height - content.height
+            let delta = height - current.height
             frame.size.height += delta
             frame.origin.y -= delta
-            let minimum = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 640, height: height)).size
-            window.minSize = minimum
-            window.setFrame(frame, display: true, animate: context.coordinator.applied != nil)
+            window.minSize = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 640, height: height)).size
+            window.setFrame(frame, display: true, animate: false)
             context.coordinator.applied = height
         }
     }

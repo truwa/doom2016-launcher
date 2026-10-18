@@ -13,7 +13,7 @@ You can point it at a GOG folder you already have, or install that copy from the
 5. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu. The first Play downloads Wine, which takes a few minutes.
 6. Press Play.
 
-Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. If you want PlayStation button icons, that switch is in Options.
+Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. The button icons stay Xbox.
 
 Macs before the M5 need a patched KosmicKrisp. Without it, DOOM dies while creating the Vulkan device. That patched build is included here, and it was tried on an M4.
 
