@@ -230,7 +230,10 @@ GOGDL_FILES = {
     "aarch64": ("gogdl_macos_arm64", "33a6d9b329c35f1caa7968009bf2f4f0a6f57cd00f749a4d2cb2204f3e794d2e"),
     "x86_64": ("gogdl_macos_x86_64", "9f78f5916141692704f9587e6519082abc2b12c5f8825548fe4d1dee1e46180c"),
 }
-GOG_PROGRESS = re.compile(r"= Progress: ([0-9.]+)")
+GOG_PROGRESS = re.compile(r"= Progress:\s*([0-9.]+)")
+GOG_ETA = re.compile(r"ETA:\s*([0-9:]+)")
+GOG_DOWNLOADED = re.compile(r"= Downloaded:\s*([0-9.]+)\s*MiB")
+GOG_SPEED = re.compile(r"Download\s+-\s*([0-9.]+)\s*MiB/s")
 
 
 def ensure_gogdl() -> Path:
@@ -278,16 +281,48 @@ def gog_download(folder: Path) -> int:
         str(tool), "--auth-config-path", str(auth), "download", GOG_APP_ID,
         "--path", str(folder), "--platform", "windows", "--lang", "en-US", "--skip-dlcs",
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
+    )
+    print(f"gog-pid {process.pid}", flush=True)
+
+    def stop_download(_signum, _frame):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            process.terminate()
+        sys.exit(1)
+
+    signal.signal(signal.SIGTERM, stop_download)
     reported = -1
+    percent = 0.0
+    downloaded = 0.0
+    speed = 0.0
+    eta = "-"
     assert process.stdout is not None
     for line in process.stdout:
+        changed = False
         match = GOG_PROGRESS.search(line)
         if match:
-            percent = int(float(match.group(1)))
-            if percent != reported:
-                reported = percent
-                print(f"progress {percent}", flush=True)
+            percent = float(match.group(1))
+            found = GOG_ETA.search(line)
+            if found:
+                eta = found.group(1)
+            changed = True
+        found = GOG_DOWNLOADED.search(line)
+        if found:
+            downloaded = float(found.group(1))
+            changed = True
+        found = GOG_SPEED.search(line)
+        if found:
+            speed = float(found.group(1))
+            changed = True
+        if changed:
+            print(f"gog-progress {percent:.2f} {downloaded:.2f} {speed:.2f} {eta}", flush=True)
+            whole = int(percent)
+            if whole != reported:
+                reported = whole
+                print(f"progress {whole}", flush=True)
             continue
         if "token" in line.lower():
             continue
@@ -536,8 +571,9 @@ def is_problem(text: str) -> bool:
     return any(needle in folded for needle in ("cannot", "failed", "not found", "error", "exception", "not saved"))
 
 
-def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode: bool,
-           msync: bool, playstation_icons: bool, debug: bool = False, log_level: str = "normal") -> int:
+def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, dev_mode: bool,
+           msync: bool, playstation_icons: bool, debug: bool = False, log_level: str = "normal",
+           executable: Path | None = None) -> int:
     if log_level not in {"errors", "normal", "verbose"}:
         log_level = "normal"
     origin = time.monotonic()
@@ -565,12 +601,24 @@ def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode
     def mark(label: str) -> None:
         emit(f"log {time.monotonic() - origin:7.2f}s {label}", problem=is_problem(label))
 
-    game = locate_game(game)
-    if ensure_chroma_library(game):
-        mark("restored CChromaEditorLibrary.dll")
-    elif not (game / "CChromaEditorLibrary.dll").is_file():
-        mark("CChromaEditorLibrary.dll is missing")
-    mark(f"game folder {game}")
+    other_game = executable is not None
+    if other_game:
+        exe = executable.expanduser().resolve()
+        if not exe.is_file():
+            raise FileNotFoundError(f"No executable at {exe}")
+        cwd = exe.parent
+        mark(f"executable {exe.name}")
+    else:
+        if game is None:
+            raise FileNotFoundError("No game folder")
+        game = locate_game(game)
+        if ensure_chroma_library(game):
+            mark("restored CChromaEditorLibrary.dll")
+        elif not (game / "CChromaEditorLibrary.dll").is_file():
+            mark("CChromaEditorLibrary.dll is missing")
+        mark(f"game folder {game}")
+        exe = game / EXE_NAME
+        cwd = game
     wine_root, icd, frameworks, kosmic = resolve_engine()
     SUPPORT.mkdir(parents=True, exist_ok=True)
     prefix = SUPPORT / "prefix"
@@ -595,33 +643,35 @@ def launch(game: Path, display: str, metal_hud: bool, skip_intro: bool, dev_mode
     map_playstation_pads(wine, environment, mark if log_level == "verbose" else None)
     if log_level != "verbose":
         mark("controllers mapped")
-    exe = game / EXE_NAME
-    command = [str(wine), str(exe), "+set", "r_fullscreen", DISPLAY_MODES[display]]
-    if skip_intro:
-        command += ["+set", "com_skipIntroVideo", "1"]
-    if dev_mode:
-        command += ["+set", "devMode_enable", "1", "+set", "savegame_ignoreUnverified", "1"]
-        # Dev mode prints engine warnings and waits for a key before the mission.
-        command += ["+set", "com_hidePrintWarnings", "1", "+set", "com_skipKeyPressOnLoadScreens", "1"]
-    if playstation_icons:
-        command += ["+set", "swf_platformOverride", "1"]
+    if other_game:
+        command = [str(wine), str(exe)]
+    else:
+        command = [str(wine), str(exe), "+set", "r_fullscreen", DISPLAY_MODES[display]]
+        if skip_intro:
+            command += ["+set", "com_skipIntroVideo", "1"]
+        if dev_mode:
+            command += ["+set", "devMode_enable", "1", "+set", "savegame_ignoreUnverified", "1"]
+            # Dev mode prints engine warnings and waits for a key before the mission.
+            command += ["+set", "com_hidePrintWarnings", "1", "+set", "com_skipKeyPressOnLoadScreens", "1"]
+        if playstation_icons:
+            command += ["+set", "swf_platformOverride", "1"]
     if log_level == "verbose":
         emit(f"Engine: {wine_root}")
-        emit(f"Game: {game}")
+        emit(f"Game: {exe if other_game else game}")
         emit(f"KosmicKrisp: {kosmic}")
     game_environment = environment
     if debug:
         game_environment = environment.copy()
         game_environment["WINEDEBUG"] = "+timestamp,+pid,+tid,+all"
-    mark("starting DOOMx64vk.exe")
+    mark(f"starting {exe.name}")
     # Leave the game on this process's own output. Capturing it through a pipe
     # fills the pipe and the game never opens its window.
     completed = subprocess.run(
-        command, cwd=game, env=game_environment,
+        command, cwd=cwd, env=game_environment,
         stdout=log_file if debug else None,
         stderr=log_file if debug else None,
     )
-    mark(f"DOOMx64vk.exe exited {completed.returncode}")
+    mark(f"{exe.name} exited {completed.returncode}")
     if log_file is not None:
         log_file.close()
     return completed.returncode
@@ -644,6 +694,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game", type=Path, default=None,
                         help="GOG folder that contains DOOMx64vk.exe and goggame-*.info")
+    parser.add_argument("--exe", type=Path, default=None,
+                        help="Start this Windows executable with the same Wine and Vulkan setup")
     parser.add_argument("--display", default="window", choices=tuple(DISPLAY_MODES),
                         help="Start in a window, borderless, or exclusive full screen")
     parser.add_argument("--metal-hud", action="store_true", help="Show the Metal performance HUD")
@@ -682,6 +734,11 @@ def main() -> int:
             return 0
         if args.check:
             return check_engine()
+        if args.exe is not None:
+            return launch(None, display=args.display, metal_hud=args.metal_hud,
+                          skip_intro=False, dev_mode=False, msync=args.msync,
+                          playstation_icons=False, debug=args.debug,
+                          log_level=args.log_level, executable=args.exe)
         if args.game is None:
             parser.error("--game is required")
         return launch(args.game, display=args.display, metal_hud=args.metal_hud,

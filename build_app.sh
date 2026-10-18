@@ -1,8 +1,8 @@
 #!/bin/bash
-# Assemble dist/Doom.app. Wine is downloaded on first launch.
+# Assemble dist/doom2016.app. Wine is downloaded on first launch.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/dist/Doom.app"
+APP="$ROOT/dist/doom2016.app"
 KOSMIC_ZIP="$ROOT/dist/upstream/libvulkan_kosmickrisp-x86_64.zip"
 KOSMIC_SHA="927fb90c337f655725bdafa2f9e2c14cac476e45efaa9598b16370e8f52132d2"
 KOSMIC_SRC="$ROOT/dist/upstream/kosmickrisp"
@@ -75,9 +75,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.2</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.6</string>
     <key>NSHighResolutionCapable</key>
@@ -93,6 +93,27 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 </dict>
 </plist>
 EOF
+
+SIGN_ID="Developer ID Application: Mehmet Akif Ozdas (2DG34W64L7)"
+if security find-identity -v -p codesigning | grep -q "$SIGN_ID"; then
+    while IFS= read -r -d '' binary; do
+        codesign --force --sign "$SIGN_ID" --options runtime --timestamp "$binary"
+    done < <(python3 - "$APP" <<'PY'
+import os, subprocess, sys
+root = sys.argv[1]
+for dirpath, _, names in os.walk(root):
+    for name in names:
+        path = os.path.join(dirpath, name)
+        if os.path.islink(path) or path.endswith("/Contents/MacOS/Doom"):
+            continue
+        kind = subprocess.run(["file", "-b", path], capture_output=True, text=True).stdout
+        if "Mach-O" in kind:
+            print(path, end="\0")
+PY
+)
+    codesign --force --sign "$SIGN_ID" --options runtime --timestamp "$APP"
+    codesign --verify --strict --verbose=2 "$APP"
+fi
 
 echo "Built $APP"
 du -sh "$APP"

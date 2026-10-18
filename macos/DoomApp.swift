@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -18,7 +19,16 @@ final class LauncherModel: ObservableObject {
     @Published var updating = false
     @Published var gogDownloading = false
     @Published var showGogLogin = false
+    @Published var showGogDownload = false
+    @Published var gogPaused = false
+    @Published var gogPercent = 0.0
+    @Published var gogDownloadedMiB = 0.0
+    @Published var gogSpeedMiB = 0.0
+    @Published var gogETA = ""
+    @Published var gogPid: Int32 = 0
     @Published var wineVersion = ""
+    @Published var otherExePath: String?
+    @Published var otherRunning = false
     @Published var showCredits = false
 
     nonisolated static var appVersion: String {
@@ -28,6 +38,7 @@ final class LauncherModel: ObservableObject {
     }
 
     private var gameURL: URL?
+    private var guestName: String?
     private var gameProcess: Process?
     private var engineProcess: Process?
     private var windowTimer: Timer?
@@ -41,6 +52,10 @@ final class LauncherModel: ObservableObject {
 
     func restore() {
         loadWineVersion()
+        if let path = UserDefaults.standard.string(forKey: "otherExePath"),
+           FileManager.default.fileExists(atPath: path) {
+            otherExePath = path
+        }
         if let data = UserDefaults.standard.data(forKey: "gameBookmark") {
             var stale = false
             if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale) {
@@ -127,10 +142,55 @@ final class LauncherModel: ObservableObject {
     }
 
     func stopGogDownload() {
+        if gogPid > 0 {
+            kill(-gogPid, SIGCONT)
+            kill(-gogPid, SIGTERM)
+        }
         engineProcess?.terminate()
+        gogPid = 0
+        gogPaused = false
+        showGogDownload = false
         gogDownloading = false
         updating = false
         status = "GOG download stopped."
+    }
+
+    func pauseGogDownload() {
+        guard gogPid > 0, !gogPaused else { return }
+        kill(-gogPid, SIGSTOP)
+        gogPaused = true
+        status = "GOG download paused."
+    }
+
+    func resumeGogDownload() {
+        guard gogPid > 0, gogPaused else { return }
+        kill(-gogPid, SIGCONT)
+        gogPaused = false
+        status = gogPercent > 0
+            ? "Downloading DOOM (2016)… \(Int(gogPercent))%"
+            : "Downloading DOOM (2016)…"
+    }
+
+    var gogProgressText: String {
+        let percent = String(format: "%.1f%%", gogPercent)
+        let size = Self.formatMiB(gogDownloadedMiB)
+        if gogPaused { return "Paused · \(percent) · \(size)" }
+        let speed = gogSpeedMiB > 0 ? String(format: "%.1f MB/s", gogSpeedMiB) : "starting"
+        let remaining = gogETA.isEmpty ? "" : " · \(Self.formatETA(gogETA)) left"
+        return "\(percent) · \(size) · \(speed)\(remaining)"
+    }
+
+    private static func formatMiB(_ value: Double) -> String {
+        if value >= 1024 { return String(format: "%.1f GB", value / 1024) }
+        if value >= 10 { return String(format: "%.0f MB", value) }
+        return String(format: "%.1f MB", value)
+    }
+
+    private static func formatETA(_ raw: String) -> String {
+        let parts = raw.split(separator: ":")
+        guard parts.count == 3, let hours = Int(parts[0]), let minutes = Int(parts[1]) else { return raw }
+        if hours > 0 { return "\(hours) h \(minutes) min" }
+        return "\(minutes) min"
     }
 
     private var gogSignedIn: Bool {
@@ -154,16 +214,37 @@ final class LauncherModel: ObservableObject {
     private func startGogDownload(_ url: URL) {
         updating = true
         gogDownloading = true
+        gogPaused = false
+        gogPid = 0
+        gogPercent = 0
+        gogDownloadedMiB = 0
+        gogSpeedMiB = 0
+        gogETA = ""
+        showGogDownload = true
         status = "Downloading DOOM (2016) from GOG…"
         runEngine(["--gog-download", url.path]) { [weak self] line in
             guard let self else { return }
-            if line.hasPrefix("progress ") {
+            if line.hasPrefix("gog-pid ") {
+                self.gogPid = Int32(line.dropFirst("gog-pid ".count)) ?? 0
+            } else if line.hasPrefix("gog-progress ") {
+                let fields = line.split(separator: " ")
+                if fields.count >= 5 {
+                    self.gogPercent = Double(fields[1]) ?? self.gogPercent
+                    self.gogDownloadedMiB = Double(fields[2]) ?? self.gogDownloadedMiB
+                    self.gogSpeedMiB = Double(fields[3]) ?? self.gogSpeedMiB
+                    let eta = String(fields[4])
+                    self.gogETA = eta == "-" ? "" : eta
+                }
+            } else if line.hasPrefix("progress ") {
                 self.status = "Downloading DOOM (2016)… \(line.dropFirst("progress ".count))%"
             } else if line.hasPrefix("status ") {
                 self.status = String(line.dropFirst("status ".count))
             }
         } onExit: { [weak self] code in
             guard let self else { return }
+            self.gogPid = 0
+            self.gogPaused = false
+            self.showGogDownload = false
             self.gogDownloading = false
             self.updating = false
             if code == 0 {
@@ -177,16 +258,25 @@ final class LauncherModel: ObservableObject {
     }
 
     func play(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, playstationIcons: Bool, logLevel: String) {
-        guard let gameURL, gameReady, !running else { return }
+        guard gameReady, !running else { return }
         if !wineReady {
             if wineInstalled {
-                beginWineSetup(force: false)
+                requireRosetta { [weak self] in self?.beginWineSetup(force: false) }
             } else {
                 confirmWineDownload(force: false)
             }
             return
         }
+        requireRosetta { [weak self] in
+            self?.launchDoom(display: display, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, playstationIcons: playstationIcons, logLevel: logLevel)
+        }
+    }
+
+    private func launchDoom(display: String, metalHud: Bool, skipIntro: Bool, devMode: Bool, msync: Bool, playstationIcons: Bool, logLevel: String) {
+        guard let gameURL, gameReady, !running else { return }
         running = true
+        otherRunning = false
+        guestName = nil
         sawGameWindow = false
         windowGonePolls = 0
         status = "DOOM is loading. The window can take a minute to appear."
@@ -217,7 +307,106 @@ final class LauncherModel: ObservableObject {
                 self.gameProcess = nil
                 self.sawGameWindow = false
                 if !alreadyNoted {
-                    self.status = ended.terminationStatus == 0 ? "DOOM (2016) closed." : "DOOM (2016) stopped."
+                    let title = self.guestName ?? "DOOM (2016)"
+                    self.status = ended.terminationStatus == 0 ? "\(title) closed." : "\(title) stopped."
+                }
+                self.guestName = nil
+                self.otherRunning = false
+            }
+        }
+        do {
+            try process.run()
+            gameProcess = process
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let text = String(data: handle.availableData, encoding: .utf8) ?? ""
+                guard !text.isEmpty else { return }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.appendLog(text)
+                }
+            }
+            watchGameWindow()
+        } catch {
+            running = false
+            guestName = nil
+            otherRunning = false
+            status = "Cannot start: \(error.localizedDescription)"
+        }
+    }
+
+    func chooseOtherExecutable() {
+        guard !running, !updating else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose a Windows executable. Play starts it later."
+        if let exe = UTType(filenameExtension: "exe") {
+            panel.allowedContentTypes = [exe]
+        }
+        panel.allowsOtherFileTypes = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        otherExePath = url.path
+        UserDefaults.standard.set(url.path, forKey: "otherExePath")
+        status = "\(url.deletingPathExtension().lastPathComponent) is ready to try."
+    }
+
+    func playOtherExecutable(metalHud: Bool, msync: Bool, logLevel: String) {
+        guard !running, !updating, let path = otherExePath else { return }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path) else {
+            status = "That executable is no longer there."
+            return
+        }
+        if !wineReady {
+            if wineInstalled {
+                requireRosetta { [weak self] in self?.beginWineSetup(force: false) }
+            } else {
+                confirmWineDownload(force: false)
+            }
+            return
+        }
+        requireRosetta { [weak self] in
+            self?.launchOtherExecutable(url, metalHud: metalHud, msync: msync, logLevel: logLevel)
+        }
+    }
+
+    private func launchOtherExecutable(_ url: URL, metalHud: Bool, msync: Bool, logLevel: String) {
+        let name = url.deletingPathExtension().lastPathComponent
+        guestName = name
+        otherRunning = true
+        running = true
+        sawGameWindow = false
+        windowGonePolls = 0
+        status = "\(name) is loading. The window can take a minute to appear."
+        log = ""
+        logRemainder = ""
+        seenLogLines.removeAll()
+        self.logLevel = logLevelArgument(logLevel)
+        launchedAt = Date()
+        let process = Process()
+        process.executableURL = pythonURL
+        var arguments = [launcherURL.path, "--exe", url.path, "--log-level", self.logLevel]
+        if metalHud { arguments.append("--metal-hud") }
+        if msync { arguments.append("--msync") }
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        process.terminationHandler = { [weak self] ended in
+            Task { @MainActor in
+                guard let self else { return }
+                self.windowTimer?.invalidate()
+                let alreadyNoted = self.status.hasSuffix("closed.") || self.status.hasSuffix("stopped.")
+                let title = self.guestName ?? name
+                self.running = false
+                self.otherRunning = false
+                self.gameProcess = nil
+                self.sawGameWindow = false
+                self.guestName = nil
+                if !alreadyNoted {
+                    self.status = ended.terminationStatus == 0 ? "\(title) closed." : "\(title) stopped."
                 }
             }
         }
@@ -235,6 +424,8 @@ final class LauncherModel: ObservableObject {
             watchGameWindow()
         } catch {
             running = false
+            otherRunning = false
+            guestName = nil
             status = "Cannot start: \(error.localizedDescription)"
         }
     }
@@ -316,8 +507,9 @@ final class LauncherModel: ObservableObject {
     func stop() {
         windowTimer?.invalidate()
         if running, !status.hasSuffix("closed.") {
-            status = "DOOM (2016) stopped."
+            status = "\(guestName ?? "DOOM (2016)") stopped."
         }
+        otherRunning = false
         gameProcess?.terminate()
     }
 
@@ -335,6 +527,175 @@ final class LauncherModel: ObservableObject {
             guard let self, !self.status.hasPrefix("Wine processes") else { return }
             self.status = code == 0 ? "Wine processes stopped." : "Could not stop the Wine processes."
         }
+    }
+
+    func checkApp(quiet: Bool = false) {
+        guard !updating else { return }
+        updating = true
+        let current = Self.appVersion
+        Task {
+            let result = await Self.latestAppRelease()
+            self.updating = false
+            switch result {
+            case .failure:
+                guard !quiet else { return }
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Could not check for an app update."
+                alert.informativeText = "The launcher's release page did not answer."
+                alert.runModal()
+            case .success(let release) where Self.isNewer(Self.versionKey(release.tag), than: Self.versionKey(current)):
+                self.offerUpdate(release, current: current)
+            case .success:
+                guard !quiet else { return }
+                let alert = NSAlert()
+                alert.alertStyle = .informational
+                alert.messageText = "The launcher is up to date."
+                alert.informativeText = "This copy is \(current)."
+                alert.runModal()
+            }
+        }
+    }
+
+    private func offerUpdate(_ release: AppRelease, current: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Launcher \(Self.displayVersion(release.tag)) is available."
+        alert.informativeText = "This copy is \(current). Update Now downloads it, closes this launcher, and opens the new one. The game folder and saves stay where they are."
+        alert.addButton(withTitle: "Update Now")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard !running else {
+            status = "Stop the game before updating the launcher."
+            return
+        }
+        guard let zipURL = release.zip else {
+            if let page = release.page { NSWorkspace.shared.open(page) }
+            return
+        }
+        updating = true
+        status = "Downloading launcher \(Self.displayVersion(release.tag))…"
+        Task {
+            do {
+                let file = try await Self.download(zipURL)
+                try Self.startReplacer(zip: file)
+                NSApp.terminate(nil)
+            } catch {
+                self.updating = false
+                self.status = "The update did not download."
+            }
+        }
+    }
+
+    private static func download(_ url: URL) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.setValue("doom-2016-macos", forHTTPHeaderField: "User-Agent")
+        let (temp, response) = try await URLSession.shared.download(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent("doom2016-update.zip")
+        if FileManager.default.fileExists(atPath: dest.path) {
+            try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.moveItem(at: temp, to: dest)
+        return dest
+    }
+
+    private static func startReplacer(zip: URL) throws {
+        let script = """
+        #!/bin/bash
+        PID="$1"
+        APP="$2"
+        ZIP="$3"
+        while kill -0 "$PID" 2>/dev/null; do
+          sleep 0.2
+        done
+        WORK=$(mktemp -d /tmp/doom2016-update.XXXXXX) || exit 1
+        ditto -x -k "$ZIP" "$WORK" || exit 1
+        NEW=$(/usr/bin/find "$WORK" -maxdepth 2 -name '*.app' -type d -print -quit)
+        if [ -z "$NEW" ]; then
+          exit 1
+        fi
+        rm -rf "$APP" || exit 1
+        ditto "$NEW" "$APP" || exit 1
+        xattr -cr "$APP" || true
+        open "$APP"
+        rm -rf "$WORK" "$ZIP"
+        """
+        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent("doom2016-update.sh")
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [
+            "-c",
+            "nohup /bin/bash \"$0\" \"$1\" \"$2\" \"$3\" >>/tmp/doom2016-update.log 2>&1 &",
+            scriptURL.path,
+            String(ProcessInfo.processInfo.processIdentifier),
+            Bundle.main.bundleURL.path,
+            zip.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private struct AppRelease {
+        var tag: String
+        var page: URL?
+        var zip: URL?
+    }
+
+    private static func latestAppRelease() async -> Result<AppRelease, Error> {
+        guard let endpoint = URL(string: "https://api.github.com/repos/truwa/doom2016-launcher/releases/latest") else {
+            return .failure(URLError(.badURL))
+        }
+        var request = URLRequest(url: endpoint, timeoutInterval: 30)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("doom-2016-macos", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = (json["tag_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !tag.isEmpty else {
+                return .failure(URLError(.badServerResponse))
+            }
+            let page = (json["html_url"] as? String).flatMap(URL.init(string:))
+            let zip = (json["assets"] as? [[String: Any]])?.compactMap { asset -> URL? in
+                guard let name = asset["name"] as? String, name.lowercased().hasSuffix(".zip"),
+                      let text = asset["browser_download_url"] as? String,
+                      let url = URL(string: text), url.host == "github.com" else { return nil }
+                return url
+            }.first
+            return .success(AppRelease(tag: tag, page: page, zip: zip))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private static func versionKey(_ text: String) -> [Int] {
+        text.drop(while: { $0 == "v" || $0 == "V" }).split(separator: ".").compactMap { part in
+            let digits = part.prefix(while: \.isNumber)
+            return Int(digits)
+        }
+    }
+
+    private static func isNewer(_ latest: [Int], than current: [Int]) -> Bool {
+        guard !latest.isEmpty else { return false }
+        let count = max(latest.count, current.count)
+        for index in 0..<count {
+            let left = index < latest.count ? latest[index] : 0
+            let right = index < current.count ? current[index] : 0
+            if left != right { return left > right }
+        }
+        return false
+    }
+
+    private static func displayVersion(_ tag: String) -> String {
+        var text = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.first == "v" || text.first == "V" { text.removeFirst() }
+        return text
     }
 
     func openSaveFolder() {
@@ -413,6 +774,10 @@ final class LauncherModel: ObservableObject {
     func prepareWine() {
         if wineReady {
             loadWineVersion()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.appleSilicon, !self.rosettaInstalled else { return }
+                self.requireRosetta { [weak self] in self?.noteWineReady() }
+            }
             return
         }
         guard !updating else { return }
@@ -420,7 +785,9 @@ final class LauncherModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in self?.confirmWineDownload(force: false) }
             return
         }
-        beginWineSetup(force: false)
+        DispatchQueue.main.async { [weak self] in
+            self?.requireRosetta { [weak self] in self?.beginWineSetup(force: false) }
+        }
     }
 
     func updateWine() {
@@ -470,13 +837,99 @@ final class LauncherModel: ObservableObject {
             guard let self else { return }
             self.updating = false
             self.loadWineVersion()
+            let resume = { [weak self] in
+                guard let self else { return }
+                if !self.wineReady {
+                    self.beginWineSetup(force: false)
+                } else if code != 0 {
+                    self.status = "Wine setup did not finish. Open the launcher again to retry."
+                } else {
+                    self.noteWineReady()
+                }
+            }
+            if self.wineInstalled, self.appleSilicon, !self.rosettaInstalled {
+                self.requireRosetta(then: resume)
+                return
+            }
             if code != 0 {
                 self.status = "Wine setup did not finish. Open the launcher again to retry."
-            } else if self.gameURL == nil {
-                self.status = "Choose the DOOM (2016) GOG folder you own."
             } else {
-                self.refresh()
+                self.noteWineReady()
             }
+        }
+    }
+
+    private func noteWineReady() {
+        if gameURL == nil {
+            status = "Choose the DOOM (2016) GOG folder you own."
+        } else {
+            refresh()
+        }
+    }
+
+    private var appleSilicon: Bool {
+        var system = utsname()
+        guard uname(&system) == 0 else { return false }
+        return withUnsafeBytes(of: &system.machine) { buffer in
+            guard let base = buffer.bindMemory(to: CChar.self).baseAddress else { return false }
+            return String(cString: base) == "arm64"
+        }
+    }
+
+    private var rosettaInstalled: Bool {
+        FileManager.default.fileExists(atPath: "/Library/Apple/usr/libexec/oah/libRosettaRuntime")
+    }
+
+    private var offeringRosetta = false
+
+    private func requireRosetta(then continuation: @escaping () -> Void) {
+        guard appleSilicon, !rosettaInstalled else {
+            continuation()
+            return
+        }
+        guard !offeringRosetta else { return }
+        offeringRosetta = true
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Rosetta 2 is required"
+        alert.informativeText = "Wine and the game are Intel programs. Rosetta 2 lets this Mac run them. Apple provides it, and the install asks for an administrator password."
+        alert.addButton(withTitle: "Install Rosetta")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            offeringRosetta = false
+            status = "Rosetta 2 is required before the game can start."
+            return
+        }
+        updating = true
+        status = "Installing Rosetta 2…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let code = LauncherModel.runRosettaInstall()
+            Task { @MainActor in
+                guard let self else { return }
+                self.updating = false
+                self.offeringRosetta = false
+                guard code == 0, self.rosettaInstalled else {
+                    self.status = "Rosetta 2 was not installed."
+                    return
+                }
+                continuation()
+            }
+        }
+    }
+
+    nonisolated private static func runRosettaInstall() -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = [
+            "-e",
+            "do shell script \"/usr/sbin/softwareupdate --install-rosetta --agree-to-license\" with administrator privileges",
+        ]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        } catch {
+            return 1
         }
     }
 
@@ -512,7 +965,7 @@ final class LauncherModel: ObservableObject {
 
     private func pollGameWindow() {
         guard running, let process = gameProcess, process.isRunning else { return }
-        if crashedSinceLaunch() {
+        if crashedSinceLaunch(), guestName == nil {
             status = "DOOM crashed while opening."
             stop()
             return
@@ -520,15 +973,15 @@ final class LauncherModel: ObservableObject {
         if gameWindowVisible(root: process.processIdentifier) {
             sawGameWindow = true
             windowGonePolls = 0
-            if status.hasPrefix("DOOM is loading") || status.hasPrefix("Starting") {
-                status = "DOOM (2016) is running."
+            if status.hasPrefix("DOOM is loading") || status.hasPrefix("Starting") || status.hasSuffix("is loading. The window can take a minute to appear.") {
+                status = "\(guestName ?? "DOOM (2016)") is running."
             }
             return
         }
         guard sawGameWindow else { return }
         windowGonePolls += 1
         if windowGonePolls >= 6 {
-            status = "DOOM (2016) closed."
+            status = "\(guestName ?? "DOOM (2016)") closed."
             stop()
         }
     }
@@ -725,6 +1178,7 @@ struct ContentView: View {
     @AppStorage("appearance") private var appearance = "system"
     @State private var folderDetails = false
     @State private var optionsOpen = false
+    @State private var tryAnother = false
     @State private var contentHeight: CGFloat = 0
     @State private var systemScheme = systemColorScheme()
 
@@ -786,27 +1240,54 @@ struct ContentView: View {
                         Text("DOOM (2016)")
                             .font(.title2)
                         Button {
-                            if model.running {
+                            if model.running, !model.otherRunning {
                                 model.stop()
                             } else {
                                 model.play(display: displayMode, metalHud: metalHud, skipIntro: skipIntro, devMode: devMode, msync: msync, playstationIcons: playstationIcons, logLevel: fullLogging ? "verbose" : logLevel)
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: model.running ? "stop.fill" : "play.fill")
+                                Image(systemName: model.running && !model.otherRunning ? "stop.fill" : "play.fill")
                                     .font(.system(size: 15, weight: .semibold))
-                                Text(model.running ? "Stop" : "Play")
+                                Text(model.running && !model.otherRunning ? "Stop" : "Play")
                                     .font(.system(size: 18, weight: .semibold))
                             }
                             .frame(maxWidth: .infinity, minHeight: 44)
                         }
                         .buttonStyle(PlayButtonStyle())
-                        .disabled(model.updating || (!model.running && !model.gameReady))
+                        .disabled(model.updating || model.otherRunning || (!model.running && !model.gameReady))
                     }
                     .frame(width: 180)
                     Spacer(minLength: 0)
                 }
                 Text(model.status)
+                DisclosureGroup("Try another Vulkan game", isExpanded: $tryAnother) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The last executable stays here. Play starts it. DOOM's display and gameplay options are not applied.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Text(model.otherExePath ?? "No executable chosen")
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Choose…") { model.chooseOtherExecutable() }
+                                .disabled(model.running || model.updating)
+                            Button(model.otherRunning ? "Stop" : "Play") {
+                                if model.otherRunning {
+                                    model.stop()
+                                } else {
+                                    model.playOtherExecutable(metalHud: metalHud, msync: msync, logLevel: fullLogging ? "verbose" : logLevel)
+                                }
+                            }
+                            .disabled(model.updating || (model.running && !model.otherRunning) || (!model.otherRunning && model.otherExePath == nil))
+                        }
+                    }
+                    .padding(.top, 4)
+                }
                 DisclosureGroup("Options", isExpanded: $optionsOpen) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -899,6 +1380,8 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
+                    Button("Check for Updates") { model.checkApp() }
+                        .disabled(model.updating)
                     Button("Credits & Licenses") { model.showCredits = true }
                 }
             }
@@ -927,6 +1410,7 @@ struct ContentView: View {
             applyAppearance()
             model.restore()
             model.prepareWine()
+            model.checkApp(quiet: true)
         }
         .onChange(of: model.showCredits) { _, showing in
             if showing { NSApp.keyWindow?.makeFirstResponder(nil) }
@@ -956,6 +1440,29 @@ struct ContentView: View {
                 }
             }
             .padding(16)
+        }
+        .sheet(isPresented: $model.showGogDownload) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Downloading DOOM (2016)")
+                    .font(.headline)
+                ProgressView(value: model.gogPercent, total: 100)
+                Text(model.gogProgressText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    if model.gogPaused {
+                        Button("Resume") { model.resumeGogDownload() }
+                    } else {
+                        Button("Pause") { model.pauseGogDownload() }
+                            .disabled(model.gogPid == 0)
+                    }
+                    Button("Cancel") { model.stopGogDownload() }
+                    Spacer()
+                }
+            }
+            .padding(20)
+            .frame(width: 420)
+            .interactiveDismissDisabled()
         }
     }
 
@@ -1033,7 +1540,7 @@ struct DoomApp: App {
         .defaultSize(width: 680, height: 280)
         .commands {
             CommandGroup(after: .appInfo) {
-                Button(model.gogDownloading ? "Stop Download" : (model.gameReady ? "Update from GOG" : "Install from GOG…")) {
+                Button(model.gogDownloading ? "Stop Download" : (model.gameReady ? "Update Doom from GOG" : "Install Doom from GOG…")) {
                     if model.gogDownloading {
                         model.stopGogDownload()
                     } else if model.gameReady {
@@ -1043,6 +1550,8 @@ struct DoomApp: App {
                     }
                 }
                 .disabled(model.running || (model.updating && !model.gogDownloading))
+                Button("Check for Updates") { model.checkApp() }
+                    .disabled(model.updating)
                 Button("Open Game Save Folder") { model.openSaveFolder() }
                 Button("Credits & Licenses") { model.showCredits = true }
             }
