@@ -1,8 +1,8 @@
 #!/bin/bash
-# Assemble dist/doom2016.app. Wine is downloaded on first launch.
+# Assemble dist/Doom2016GOG.app. Wine is downloaded on first launch.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/dist/doom2016.app"
+APP="$ROOT/dist/Doom2016GOG.app"
 KOSMIC_ZIP="$ROOT/dist/upstream/libvulkan_kosmickrisp-x86_64.zip"
 KOSMIC_SHA="927fb90c337f655725bdafa2f9e2c14cac476e45efaa9598b16370e8f52132d2"
 KOSMIC_SRC="$ROOT/dist/upstream/kosmickrisp"
