@@ -28,7 +28,7 @@ There is also a Metal performance HUD, a way to try another Vulkan game with the
 
 ## Notes
 
-- Tested on an M5 Pro and an M4 Mac with macOS 27.
+- Tested on M5 Pro and M4 with macOS 27.
 - The GOG download can sometimes stall. If it stops moving, pause or cancel it, then start it again. It picks up where it left off.
 - Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
   
