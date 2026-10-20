@@ -14,7 +14,7 @@ Mac launcher for a GOG copy of DOOM (2016). The game is not in the repo or the r
 
 Certificate on this machine: `Developer ID Application: Mehmet Akif Ozdas (2DG34W64L7)`. Team ID `2DG34W64L7`.
 
-The notary password is in the Keychain profile `doom2016-notary` (saved 2026-10-20). Do not put the Apple ID or the app-specific password in the repo. Notarization and the GitHub release wait until the remaining app tests pass. Then:
+The notary password is in the Keychain profile `doom2016-notary` (saved 2026-10-20). Do not put the Apple ID or the app-specific password in the repo. Release 1.2 was notarized, stapled, and published on 2026-10-20. To publish another:
 
 ```bash
 ./release.sh 1.2.0 path/to/notes.txt
@@ -59,8 +59,7 @@ open --env DOOM_UPDATE_FEED="$PWD/dist/update-test" --env DOOM_UPDATE_SKIP_NOTAR
 
 ## Known issues
 
-- The repo is public. Latest release is still 1.1, which is signed and not notarized. The new updater will reject that zip at the notarization check. Copies already installed from 1.1 still use the old replacer.
-- Notarization is on hold. Profile `doom2016-notary` is stored. Run `./release.sh` only after the remaining app tests pass.
+- Latest public release is 1.2, notarized. The local test copy is `dist/earlier/Doom2016GOG.app`, version 1.1, with this updater and the same Team ID. It is signed and not notarized, so the first open may need a right-click and Open. A spare is `dist/earlier-pristine/Doom2016GOG.app`. A successful update replaces the copy that was launched. The GitHub 1.1 zip still has the old replacer.
 - Wine is whatever Gcenx has marked latest at first launch, not a pinned commit. The installed version is written to `WINE_VERSION`.
 - Full screen and Command-Tab still close the game. Borderless does not.
 - KosmicKrisp in the app is the x86_64 compat build v0.1.0 (Mesa 26.2.4). Macs before the M5 need that patched build.
@@ -70,12 +69,12 @@ open --env DOOM_UPDATE_FEED="$PWD/dist/update-test" --env DOOM_UPDATE_SKIP_NOTAR
 1. Scan history for secrets: `git log -p --all | grep -E 'gho_|ghp_|github_pat_|BEGIN PRIVATE|AKIA'`. On 2026-10-20 that scan matched nothing.
 2. Confirm the release binary has no feed override: `strings dist/Doom2016GOG.app/Contents/MacOS/Doom | grep DOOM_UPDATE_FEED` should print nothing. A DEBUG build will print it.
 3. Repository was made public on 2026-10-20.
-4. After the remaining app tests pass, notarize and publish, then install the previous release and use Check for Updates against that real GitHub release.
+4. Release 1.2 is public and notarized. Test Check for Updates from `dist/earlier/Doom2016GOG.app` (version 1.1, new updater), not from the old GitHub 1.1 zip.
 
 ## Changelog
 
 ### 2026-10-20
 
-Notary profile `doom2016-notary` is in the Keychain. The repository is public. Notarization and the next GitHub release stay parked until the remaining app tests pass.
+Notary profile `doom2016-notary` is in the Keychain. The repository is public. Release 1.2 is notarized and published. A local 1.1 copy with the new updater is in `dist/earlier/` for the update test.
 
 Update checks are manual. The download window verifies the signature, Team ID, and notarization, then a helper swaps the app in place and relaunches. `release.sh` signs inside-out, notarizes, staples, and publishes. DEBUG builds can point at a local feed. License texts for Wine, gogdl, and KosmicKrisp are in `licenses/`. The GOG token file stays mode `0600` in a `0700` support folder.
