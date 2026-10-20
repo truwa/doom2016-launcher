@@ -48,6 +48,6 @@ Microsoft's Visual C++ 2015–2022 runtime is downloaded from Microsoft on that 
 
 KosmicKrisp is part of Mesa and is MIT. The patched build in this app is what lets the game create a Vulkan device on Macs before the M5. Mesa's notes are at [docs.mesa3d.org](https://docs.mesa3d.org/drivers/kosmickrisp.html).
 
-The GOG download tool is [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) v1.3.1 from Heroic Games Launcher, under GPL-3.0. It is used to sign in, download the game you own, and sync saves when you ask it to.
+The app downloads [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) v1.3.1 from Heroic Games Launcher the first time you sign in to GOG, install the game, or sync saves. It is GPL-3.0, its download is checked against a SHA-256 hash, and it is used to sign in, download the game you own, and sync saves when you ask it to.
 
 The launcher itself is MacGameTest. [youtube.com/@MacGameTest](https://www.youtube.com/@MacGameTest)
