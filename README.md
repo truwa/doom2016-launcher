@@ -8,7 +8,7 @@ You can point it at a GOG folder you already have, or install that copy from the
   <img src="https://img.youtube.com/vi/xcSXmYcd-Fg/hqdefault.jpg" width="480" alt="DOOM (2016) on Mac performance test">
 </a>
 
-▶ Watch the M5 Pro and M4 performance test on YouTube.
+[▶ Watch the M5 Pro and M4 performance test on YouTube](https://youtu.be/xcSXmYcd-Fg)
 
 ## Requirements
 - Apple silicon Mac (M1 or later). Intel Macs are not supported.
