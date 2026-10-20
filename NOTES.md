@@ -1,6 +1,6 @@
 # DOOM (2016) launcher
 
-Mac launcher for a GOG copy of DOOM (2016). The game is not in the repo or the release zip. The app is `Doom2016GOG.app`, bundle id `com.doom2016.macos`. GitHub repo: `truwa/doom2016-launcher` (private until the pre-release checklist below). Support files live in `~/Library/Application Support/DOOM 2016`.
+Mac launcher for a GOG copy of DOOM (2016). The game is not in the repo or the release zip. The app is `Doom2016GOG.app`, bundle id `com.doom2016.macos`. GitHub repo: `truwa/doom2016-launcher` (public as of 2026-10-20). Support files live in `~/Library/Application Support/DOOM 2016`.
 
 ## How it runs
 
@@ -14,13 +14,7 @@ Mac launcher for a GOG copy of DOOM (2016). The game is not in the repo or the r
 
 Certificate on this machine: `Developer ID Application: Mehmet Akif Ozdas (2DG34W64L7)`. Team ID `2DG34W64L7`.
 
-One-time, the notary password stays in the Keychain. There is no profile stored yet:
-
-```bash
-xcrun notarytool store-credentials doom2016-notary --apple-id YOU@icloud.com --team-id 2DG34W64L7
-```
-
-Then:
+The notary password is in the Keychain profile `doom2016-notary` (saved 2026-10-20). Do not put the Apple ID or the app-specific password in the repo. Notarization and the GitHub release wait until the remaining app tests pass. Then:
 
 ```bash
 ./release.sh 1.2.0 path/to/notes.txt
@@ -50,7 +44,7 @@ Update & Relaunch starts a helper and quits. The helper waits until this process
 
 If macOS is running the app from `AppTranslocation` (a zip that was opened in place), the update refuses. Move the app to a normal folder and open that copy. The previous helper tried to `rm -rf` that read-only path and filled `/tmp/doom2016-update.log` with "Read-only file system".
 
-## Debug feed while the repo is private
+## Debug feed
 
 Release binaries do not contain a token or a feed override. A `DEBUG=1` build reads `DOOM_UPDATE_FEED` (a folder with `release.json` and a zip, or an `http://127.0.0.1` / `http://localhost` URL). It can also read a GitHub token from the Keychain item service `doom2016-launcher-update`, account `github`. Do not put that token in the repo.
 
@@ -65,8 +59,8 @@ open --env DOOM_UPDATE_FEED="$PWD/dist/update-test" --env DOOM_UPDATE_SKIP_NOTAR
 
 ## Known issues
 
-- The repo is private, so the public releases API returns HTTP 404. That is what made the update link unreachable. Shipping an update does not fix already-installed 1.1 copies until they can see a public release, and those copies still use the old replacer.
-- No notarytool keychain profile is stored yet. `./release.sh` stops and prints the `store-credentials` command.
+- The repo is public. Latest release is still 1.1, which is signed and not notarized. The new updater will reject that zip at the notarization check. Copies already installed from 1.1 still use the old replacer.
+- Notarization is on hold. Profile `doom2016-notary` is stored. Run `./release.sh` only after the remaining app tests pass.
 - Wine is whatever Gcenx has marked latest at first launch, not a pinned commit. The installed version is written to `WINE_VERSION`.
 - Full screen and Command-Tab still close the game. Borderless does not.
 - KosmicKrisp in the app is the x86_64 compat build v0.1.0 (Mesa 26.2.4). Macs before the M5 need that patched build.
@@ -75,11 +69,13 @@ open --env DOOM_UPDATE_FEED="$PWD/dist/update-test" --env DOOM_UPDATE_SKIP_NOTAR
 
 1. Scan history for secrets: `git log -p --all | grep -E 'gho_|ghp_|github_pat_|BEGIN PRIVATE|AKIA'`. On 2026-10-20 that scan matched nothing.
 2. Confirm the release binary has no feed override: `strings dist/Doom2016GOG.app/Contents/MacOS/Doom | grep DOOM_UPDATE_FEED` should print nothing. A DEBUG build will print it.
-3. Make the repository public yourself.
-4. Install the previous release, use Check for Updates, and install the new notarized zip from the real GitHub release.
+3. Repository was made public on 2026-10-20.
+4. After the remaining app tests pass, notarize and publish, then install the previous release and use Check for Updates against that real GitHub release.
 
 ## Changelog
 
 ### 2026-10-20
+
+Notary profile `doom2016-notary` is in the Keychain. The repository is public. Notarization and the next GitHub release stay parked until the remaining app tests pass.
 
 Update checks are manual. The download window verifies the signature, Team ID, and notarization, then a helper swaps the app in place and relaunches. `release.sh` signs inside-out, notarizes, staples, and publishes. DEBUG builds can point at a local feed. License texts for Wine, gogdl, and KosmicKrisp are in `licenses/`. The GOG token file stays mode `0600` in a `0700` support folder.
