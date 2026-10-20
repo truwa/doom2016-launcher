@@ -2,3 +2,11 @@ dist/
 .DS_Store
 __pycache__/
 *.pyc
+.env
+.env.*
+*.p12
+*.pem
+*.key
+*.mobileprovision
+credentials.json
+gog-auth.json

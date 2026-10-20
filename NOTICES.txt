@@ -1,5 +1,8 @@
 DOOM (2016) is not included. Point the launcher at the GOG folder you own.
 
+License texts and the exact source versions are in licenses/SOURCES.txt.
+That folder is at the top of the project and inside the app bundle.
+
 Wine
   LGPL-2.1-or-later
   Downloaded on first launch from the latest WineHQ macOS build published by Gcenx:

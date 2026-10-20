@@ -1,0 +1,30 @@
+License texts in this folder are included with the app. The games are not.
+
+Wine
+  License file: Wine-LGPL-2.1.txt (LGPL-2.1-or-later)
+  Not bundled. Downloaded on first launch.
+  Build: the latest macOS WineHQ build published by Gcenx
+  https://github.com/Gcenx/macOS_Wine_builds/releases/latest
+  Upstream source: https://gitlab.winehq.org/wine/wine
+  After install, the version string is in
+  ~/Library/Application Support/DOOM 2016/WINE_VERSION
+
+gogdl
+  License file: gogdl-GPL-3.0.txt (GPL-3.0)
+  Not bundled. Downloaded on first use.
+  Exact version: v1.3.1
+  https://github.com/Heroic-Games-Launcher/heroic-gogdl/releases/tag/v1.3.1
+  License file at that tag:
+  https://github.com/Heroic-Games-Launcher/heroic-gogdl/blob/v1.3.1/LICENSE
+  gogdl_macos_arm64 sha256 33a6d9b329c35f1caa7968009bf2f4f0a6f57cd00f749a4d2cb2204f3e794d2e
+  gogdl_macos_x86_64 sha256 9f78f5916141692704f9587e6519082abc2b12c5f8825548fe4d1dee1e46180c
+
+KosmicKrisp
+  License file: KosmicKrisp-MIT.txt (MIT)
+  Bundled binary: libvulkan_kosmickrisp.dylib
+  Exact build: https://github.com/truwa/kosmickrisp-compat/releases/tag/v0.1.0
+  Asset: libvulkan_kosmickrisp-x86_64.zip
+  sha256 927fb90c337f655725bdafa2f9e2c14cac476e45efaa9598b16370e8f52132d2
+  Built from Mesa 26.2.4, src/kosmickrisp, SPDX-License-Identifier: MIT
+  https://gitlab.freedesktop.org/mesa/mesa/-/tree/mesa-26.2.4/src/kosmickrisp
+  https://docs.mesa3d.org/drivers/kosmickrisp.html

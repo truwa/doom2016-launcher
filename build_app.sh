@@ -6,8 +6,9 @@ APP="$ROOT/dist/Doom2016GOG.app"
 KOSMIC_ZIP="$ROOT/dist/upstream/libvulkan_kosmickrisp-x86_64.zip"
 KOSMIC_SHA="927fb90c337f655725bdafa2f9e2c14cac476e45efaa9598b16370e8f52132d2"
 KOSMIC_SRC="$ROOT/dist/upstream/kosmickrisp"
-PYTHON_DIR="$ROOT/dist/python-standalone"
-SIBLING_PYTHON="/Users/truwa/Projects/uncharted-macos-crossover/dist/python-standalone"
+PYTHON_DIR="${PYTHON_STANDALONE:-$ROOT/dist/python-standalone}"
+VERSION="${VERSION:-1.1}"
+BUILD="${BUILD:-2}"
 
 mkdir -p "$ROOT/dist/upstream"
 if [[ ! -f "$KOSMIC_SRC/libvulkan_kosmickrisp.dylib" ]]; then
@@ -31,6 +32,8 @@ cp "$KOSMIC_SRC/libvulkan_kosmickrisp.dylib" "$APP/Contents/Frameworks/"
 cp "$ROOT/vulkan/kosmickrisp_icd.json" "$APP/Contents/Resources/vulkan/icd.d/"
 cp "$ROOT/launch.py" "$ROOT/NOTICES.txt" "$APP/Contents/Resources/engine/"
 cp "$ROOT/NOTICES.txt" "$APP/Contents/Resources/NOTICES.txt"
+mkdir -p "$APP/Contents/Resources/licenses"
+cp "$ROOT/licenses/"* "$APP/Contents/Resources/licenses/"
 cp "$ROOT/macos/cover.jpg" "$APP/Contents/Resources/cover.jpg"
 # Dock icon: the DOOM title from the cover, on the red field. macOS rounds the corners.
 ICONSET="$ROOT/dist/AppIcon.iconset"
@@ -85,27 +88,27 @@ rm -rf "$ICONSET" "$SOURCE"
 chmod 755 "$APP/Contents/Frameworks/libvulkan_kosmickrisp.dylib"
 
 if [[ ! -x "$PYTHON_DIR/bin/python3" ]]; then
-    if [[ -x "$SIBLING_PYTHON/bin/python3" ]]; then
-        mkdir -p "$PYTHON_DIR"
-        rsync -a "$SIBLING_PYTHON/" "$PYTHON_DIR/"
-    else
-        ASSET="$(curl -fsSL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" \
-            | python3 -c 'import json,sys; rel=json.load(sys.stdin); print(next(a["browser_download_url"] for a in rel["assets"] if "aarch64-apple-darwin" in a["name"] and a["name"].endswith("install_only.tar.gz")))')"
-        curl -fL "$ASSET" -o "$ROOT/dist/python.tar.gz"
-        rm -rf "$PYTHON_DIR"
-        mkdir -p "$PYTHON_DIR"
-        tar -xzf "$ROOT/dist/python.tar.gz" -C "$PYTHON_DIR" --strip-components 1
-        rm "$ROOT/dist/python.tar.gz"
-    fi
+    ASSET="$(curl -fsSL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" \
+        | python3 -c 'import json,sys; rel=json.load(sys.stdin); print(next(a["browser_download_url"] for a in rel["assets"] if "aarch64-apple-darwin" in a["name"] and a["name"].endswith("install_only.tar.gz")))')"
+    curl -fL "$ASSET" -o "$ROOT/dist/python.tar.gz"
+    rm -rf "$ROOT/dist/python-standalone"
+    mkdir -p "$ROOT/dist/python-standalone"
+    tar -xzf "$ROOT/dist/python.tar.gz" -C "$ROOT/dist/python-standalone" --strip-components 1
+    rm "$ROOT/dist/python.tar.gz"
+    PYTHON_DIR="$ROOT/dist/python-standalone"
 fi
 mkdir -p "$APP/Contents/Resources/python"
 rsync -a "$PYTHON_DIR/" "$APP/Contents/Resources/python/"
 
-swiftc -parse-as-library -O -o "$APP/Contents/MacOS/Doom" \
-    -framework SwiftUI -framework AppKit -framework WebKit \
-    "$ROOT/macos/DoomApp.swift"
+SWIFT_FLAGS=(-parse-as-library -O -framework SwiftUI -framework AppKit -framework WebKit -framework Security)
+if [[ "${DEBUG:-}" == "1" ]]; then
+    SWIFT_FLAGS+=(-DDEBUG)
+fi
+swiftc "${SWIFT_FLAGS[@]}" -o "$APP/Contents/MacOS/Doom" \
+    "$ROOT/macos/DoomApp.swift" \
+    "$ROOT/macos/AppUpdate.swift"
 
-cat > "$APP/Contents/Info.plist" <<'EOF'
+cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -127,9 +130,9 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1</string>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>${BUILD}</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.6</string>
     <key>NSHighResolutionCapable</key>
@@ -146,26 +149,48 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 </plist>
 EOF
 
-SIGN_ID="Developer ID Application: Mehmet Akif Ozdas (2DG34W64L7)"
-if security find-identity -v -p codesigning | grep -q "$SIGN_ID"; then
-    while IFS= read -r -d '' binary; do
-        codesign --force --sign "$SIGN_ID" --options runtime --timestamp "$binary"
-    done < <(python3 - "$APP" <<'PY'
+SIGN_ID="${SIGN_ID:-Developer ID Application: Mehmet Akif Ozdas (2DG34W64L7)}"
+ENTITLEMENTS="$ROOT/macos/entitlements.plist"
+if ! security find-identity -v -p codesigning | grep -q "$SIGN_ID"; then
+    if [[ "${REQUIRE_SIGN:-}" == "1" ]]; then
+        echo "Developer ID certificate not found: $SIGN_ID" >&2
+        exit 1
+    fi
+    echo "Built $APP (unsigned; certificate not found)"
+    du -sh "$APP"
+    exit 0
+fi
+python3 - "$APP" "$SIGN_ID" "$ENTITLEMENTS" <<'PY'
 import os, subprocess, sys
-root = sys.argv[1]
+root, identity, entitlements = sys.argv[1:]
+main = os.path.join(root, "Contents/MacOS/Doom")
+found = []
 for dirpath, _, names in os.walk(root):
     for name in names:
         path = os.path.join(dirpath, name)
-        if os.path.islink(path) or path.endswith("/Contents/MacOS/Doom"):
+        if os.path.islink(path) or os.path.realpath(path) == os.path.realpath(main):
             continue
         kind = subprocess.run(["file", "-b", path], capture_output=True, text=True).stdout
         if "Mach-O" in kind:
-            print(path, end="\0")
+            found.append((path.count(os.sep), path, kind))
+found.sort(reverse=True)
+for _, path, kind in found:
+    command = [
+        "codesign", "--force", "--sign", identity,
+        "--options", "runtime", "--timestamp",
+    ]
+    # Entitlements apply to executables. Libraries are sealed with the hardened runtime only.
+    if "executable" in kind and "shared library" not in kind and "bundle" not in kind:
+        command.extend(["--entitlements", entitlements])
+    command.append(path)
+    subprocess.check_call(command)
+subprocess.check_call([
+    "codesign", "--force", "--sign", identity,
+    "--options", "runtime", "--timestamp",
+    "--entitlements", entitlements, root,
+])
 PY
-)
-    codesign --force --sign "$SIGN_ID" --options runtime --timestamp "$APP"
-    codesign --verify --strict --verbose=2 "$APP"
-fi
+codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "Built $APP"
 du -sh "$APP"

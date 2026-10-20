@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Applied to the app executable and to nested executables (the bundled Python).
+  Nested dylibs are signed with the hardened runtime but without these keys:
+  Apple honors them on executables, and notarization rejects them on libraries.
+
+  The downloaded Wine process does not inherit this file. Wine is a separate
+  program under ~/Library/Application Support/DOOM 2016. These keys are what
+  that kind of loader needs once an executable is signed with the hardened runtime.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Wine writes Windows code into memory and executes it. The hardened runtime blocks that without this key. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- Wine's code allocator uses MAP_JIT pages under the hardened runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- KosmicKrisp and Wine's libraries are not all sealed into this bundle under this Team ID. A signed process must still be able to load them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

@@ -25,6 +25,13 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent
 SUPPORT = Path.home() / "Library/Application Support/DOOM 2016"
+
+
+def ensure_support() -> None:
+    SUPPORT.mkdir(parents=True, exist_ok=True)
+    os.chmod(SUPPORT, 0o700)
+
+
 UPSTREAM = ROOT / "dist/upstream"
 WINE_DIST = UPSTREAM / "wine-extract/Wine Devel.app/Contents/Resources/wine"
 WINE_RELEASE_API = "https://api.github.com/repos/Gcenx/macOS_Wine_builds/releases/latest"
@@ -114,7 +121,7 @@ def wine_environment(prefix: Path, icd: Path, frameworks: Path, kosmic: Path, wi
     spec = json.loads(icd.read_text(encoding="utf-8"))
     spec["ICD"]["library_path"] = str(kosmic)
     driver = SUPPORT / "kosmickrisp_icd.json"
-    SUPPORT.mkdir(parents=True, exist_ok=True)
+    ensure_support()
     driver.write_text(json.dumps(spec), encoding="utf-8")
     environment["VK_DRIVER_FILES"] = str(driver)
     environment["VK_ICD_FILENAMES"] = str(driver)
@@ -274,7 +281,7 @@ def ensure_gogdl() -> Path:
 
 def gog_auth(code: str) -> None:
     tool = ensure_gogdl()
-    SUPPORT.mkdir(parents=True, exist_ok=True)
+    ensure_support()
     auth = SUPPORT / "gog-auth.json"
     completed = subprocess.run(
         [str(tool), "--auth-config-path", str(auth), "auth", "--code", code],
@@ -664,7 +671,7 @@ def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, d
     origin = time.monotonic()
     log_file = None
     if debug:
-        SUPPORT.mkdir(parents=True, exist_ok=True)
+        ensure_support()
         log_file = (SUPPORT / "launch.log").open("w", encoding="utf-8", buffering=1)
     seen: dict[str, int] = {}
 
@@ -705,7 +712,7 @@ def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, d
         exe = game / EXE_NAME
         cwd = game
     wine_root, icd, frameworks, kosmic = resolve_engine()
-    SUPPORT.mkdir(parents=True, exist_ok=True)
+    ensure_support()
     prefix = SUPPORT / "prefix"
     environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root, metal_hud, msync)
     environment["WINEDEBUG"] = "-all"
@@ -762,7 +769,7 @@ def launch(game: Path | None, display: str, metal_hud: bool, skip_intro: bool, d
 
 def check_engine() -> int:
     wine_root, icd, frameworks, kosmic = resolve_engine()
-    SUPPORT.mkdir(parents=True, exist_ok=True)
+    ensure_support()
     prefix = SUPPORT / "prefix"
     environment = wine_environment(prefix, icd, frameworks, kosmic, wine_root)
     ensure_prefix(wine_root / "bin/wine", environment)
