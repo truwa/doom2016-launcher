@@ -36,6 +36,7 @@ There is also a Metal performance HUD, a way to try another Vulkan game with the
 - Tested on M5 Pro and M4 with macOS 27.
 - The GOG download can sometimes stall. If it stops moving, pause or cancel it, then start it again. It downloads only the remaining files upon cancel/start.
 - Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
+- If the audio output device has 96Khz sampling rate then it causes static noise in the background. Setting sample rate to 48Khz in Audio Midi Setup app fixes it.
   
 
 ## Credits and licenses
