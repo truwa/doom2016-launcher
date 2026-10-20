@@ -2,7 +2,7 @@
 
 This is a small launcher for the GOG version of DOOM (2016). It is a bare-minimum Wine and Vulkan wrapper, and it uses KosmicKrisp. The game is not in the download.
 
-You can point it at a GOG folder you already have, or install that copy from the app menu. The first launch downloads Wine and sets up the Windows side, including Microsoft's C++ runtime. On Apple silicon it also asks to install Rosetta if the Mac does not have it.
+You can point it at a GOG folder you already have, or install that copy from the app menu. The first launch downloads Wine and sets up the Windows side, including Microsoft's C++ runtime. On Apple silicon it also asks to install Rosetta if the Mac does not have it (requires an admin password).
 
 <a href="https://www.youtube.com/watch?v=xcSXmYcd-Fg">
   <img src="https://img.youtube.com/vi/xcSXmYcd-Fg/hqdefault.jpg" width="480" alt="DOOM (2016) on Mac performance test">
