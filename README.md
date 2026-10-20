@@ -7,7 +7,7 @@ You can point it at a GOG folder you already have, or install that copy from the
 ## Install and run
 
 1. Download the zip from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest) and unzip it.
-2. Open `Doom2016GOG.app`. A notarized release opens with a double-click. The 1.0 and 1.1 downloads were signed but not notarized, so those copies need a right-click and Open the first time.
+2. Open `Doom2016GOG.app`. The release is notarized, so a double-click opens it.
 3. If macOS still refuses, open System Settings, go to Privacy & Security, and allow the app there. The button usually says Open Anyway.
 4. On Apple silicon, say yes if it asks to install Rosetta. That needs an administrator password.
 5. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu. The first Play downloads Wine, which takes a few minutes.

@@ -10,3 +10,4 @@ __pycache__/
 *.mobileprovision
 credentials.json
 gog-auth.json
+NOTES.md
