@@ -8,18 +8,25 @@ You can point it at a GOG folder you already have, or install that copy from the
 
 1. Download the zip from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest) and unzip it.
 2. Open `Doom2016GOG.app`. The release is notarized, so a double-click opens it.
-3. If macOS still refuses, open System Settings, go to Privacy & Security, and allow the app there. The button usually says Open Anyway.
-4. On Apple silicon, say yes if it asks to install Rosetta. That needs an administrator password.
-5. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu. The first Play downloads Wine, which takes a few minutes.
-6. Press Play.
+3. On Apple silicon, Rosetta is needed. If it's missing, the app offers to install it (requires an admin password).
+4. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu.
+5. Press Play. The first launch downloads Wine and sets things up, which takes a few minutes. Later launches are quick.
+
+If macOS still blocks the app, open System Settings, go to Privacy & Security, and click Open Anyway.
 
 Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. The button icons stay Xbox.
 
 Macs before the M5 need a patched KosmicKrisp. Without it, DOOM dies while creating the Vulkan device. That patched build is included here, and it was tried on an M4.
 
-Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
-
 There is also a Metal performance HUD, a way to try another Vulkan game with the same setup, a check for a newer launcher, and a GOG save sync in the app menu.
+
+
+## Notes
+
+- Tested on an M5 Pro and an M4 Mac.
+- The GOG download can sometimes stall. If it stops moving, pause or cancel it, then start it again. It picks up where it left off.
+- Full screen and Command-Tab do not get along. The game just closes. Borderless is the one that stays up when you switch apps.
+  
 
 ## Credits and licenses
 
