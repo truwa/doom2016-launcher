@@ -4,7 +4,9 @@ This is a small launcher for the GOG version of DOOM (2016). It is a bare-minimu
 
 You can point it at a GOG folder you already have, or install that copy from the app menu. The first launch downloads Wine and sets up the Windows side, including Microsoft's C++ runtime. On Apple silicon it also asks to install Rosetta if the Mac does not have it.
 
-[![Test video](https://img.youtube.com/vi/xcSXmYcd-Fg/maxresdefault.jpg)](https://www.youtube.com/watch?v=xcSXmYcd-Fg)
+<a href="https://www.youtube.com/watch?v=xcSXmYcd-Fg">
+  <img src="https://img.youtube.com/vi/xcSXmYcd-Fg/hqdefault.jpg" width="480" alt="DOOM (2016) on Mac performance test">
+</a>
 
 ▶ Watch the M5 Pro and M4 performance test on YouTube.
 
