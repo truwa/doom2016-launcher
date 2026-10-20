@@ -4,6 +4,10 @@ This is a small launcher for the GOG version of DOOM (2016). It is a bare-minimu
 
 You can point it at a GOG folder you already have, or install that copy from the app menu. The first launch downloads Wine and sets up the Windows side, including Microsoft's C++ runtime. On Apple silicon it also asks to install Rosetta if the Mac does not have it.
 
+[![Test video](https://img.youtube.com/vi/xcSXmYcd-Fg/maxresdefault.jpg)](https://www.youtube.com/watch?v=xcSXmYcd-Fg)
+
+▶ Watch the M5 Pro and M4 performance test on YouTube.
+
 ## Requirements
 - Apple silicon Mac (M1 or later). Intel Macs are not supported.
 - macOS 26 Tahoe or later. KosmicKrisp needs Metal 4, so it won't run on macOS 15 Sequoia or older.
