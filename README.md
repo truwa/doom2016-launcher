@@ -26,7 +26,7 @@ If macOS still blocks the app, open System Settings, go to Privacy & Security, a
 
 Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. The button icons stay Xbox.
 
-Macs before the M5 need a patched KosmicKrisp, which is included in this app. Stock KosmicKrisp refuses to create the Vulkan device on M4 because DOOM turns on depthBounds without asking whether the GPU has it.
+Macs before the M5 need a patched KosmicKrisp, which is included in this app. Stock KosmicKrisp refuses to create the Vulkan device on M4 because DOOM turns on `depthBounds` without asking whether the GPU has it.
 
 There is also a Metal performance HUD, a way to try another Vulkan game with the same setup, a check for a newer launcher, and a GOG save sync in the app menu.
 
