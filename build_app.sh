@@ -100,7 +100,8 @@ fi
 mkdir -p "$APP/Contents/Resources/python"
 rsync -a "$PYTHON_DIR/" "$APP/Contents/Resources/python/"
 
-SWIFT_FLAGS=(-parse-as-library -O -framework SwiftUI -framework AppKit -framework WebKit -framework Security)
+# Without -target, the binary's minimum becomes the SDK version (27 on this Mac) and macOS 26 will not open it.
+SWIFT_FLAGS=(-parse-as-library -O -target arm64-apple-macos26.0 -framework SwiftUI -framework AppKit -framework WebKit -framework Security)
 if [[ "${DEBUG:-}" == "1" ]]; then
     SWIFT_FLAGS+=(-DDEBUG)
 fi
@@ -134,7 +135,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key>
     <string>${BUILD}</string>
     <key>LSMinimumSystemVersion</key>
-    <string>14.6</string>
+    <string>26.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSDesktopFolderUsageDescription</key>

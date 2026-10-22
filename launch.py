@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys
+
+sys.dont_write_bytecode = True
+
 """Start a GOG copy of DOOM (2016) with Wine and the KosmicKrisp compat driver.
 
 The game stays where the user put it. The Wine prefix lives under
@@ -17,7 +21,6 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tarfile
 import time
 import tempfile

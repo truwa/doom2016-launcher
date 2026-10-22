@@ -292,14 +292,13 @@ final class LauncherModel: ObservableObject {
         self.logLevel = logLevelArgument(logLevel)
         launchedAt = Date()
         let process = Process()
-        process.executableURL = pythonURL
         var arguments = [launcherURL.path, "--game", gameURL.path, "--display", display]
         if metalHud { arguments.append("--metal-hud") }
         if skipIntro { arguments.append("--skip-intro") }
         if devMode { arguments.append("--dev-mode") }
         if msync { arguments.append("--msync") }
         arguments += ["--log-level", logLevel]
-        process.arguments = arguments
+        configurePython(process, arguments: arguments)
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -391,11 +390,10 @@ final class LauncherModel: ObservableObject {
         self.logLevel = logLevelArgument(logLevel)
         launchedAt = Date()
         let process = Process()
-        process.executableURL = pythonURL
         var arguments = [launcherURL.path, "--exe", url.path, "--log-level", self.logLevel]
         if metalHud { arguments.append("--metal-hud") }
         if msync { arguments.append("--msync") }
-        process.arguments = arguments
+        configurePython(process, arguments: arguments)
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -851,8 +849,7 @@ final class LauncherModel: ObservableObject {
 
     private func runEngine(_ arguments: [String], onLine: @escaping (String) -> Void, onExit: @escaping (Int32) -> Void) {
         let process = Process()
-        process.executableURL = pythonURL
-        process.arguments = [launcherURL.path] + arguments
+        configurePython(process, arguments: [launcherURL.path] + arguments)
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -970,6 +967,15 @@ final class LauncherModel: ObservableObject {
         let bundled = resources.appendingPathComponent("python/bin/python3")
         if FileManager.default.isExecutableFile(atPath: bundled.path) { return bundled }
         return URL(fileURLWithPath: "/opt/homebrew/bin/python3")
+    }
+
+    /// `-B` and `PYTHONDONTWRITEBYTECODE` keep Python from writing `__pycache__` into the signed bundle.
+    private func configurePython(_ process: Process, arguments: [String]) {
+        process.executableURL = pythonURL
+        process.arguments = ["-B"] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        process.environment = environment
     }
 
     private var launcherURL: URL {

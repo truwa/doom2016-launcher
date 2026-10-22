@@ -17,12 +17,15 @@ You can point it at a GOG folder you already have, or install that copy from the
 
 ## Install and run
 
-1. Download the zip from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest) and unzip it.
-2. Open `Doom2016GOG.app`. The release is notarized, so a double-click opens it.
-3. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu.
-4. Press Play. The first launch downloads Wine and sets things up, which takes a few minutes. Later launches are quick.
+1. Download the disk image from the [latest release](https://github.com/truwa/doom2016-launcher/releases/latest) and open it.
+2. Drag `Doom2016GOG.app` to the Applications folder. The disk image also contains this readme.
+3. Open `Doom2016GOG.app`. The release is notarized, so a double-click opens it.
+4. Choose the GOG folder that contains `DOOMx64vk.exe`, or use Install Doom from GOG in the app menu.
+5. Press Play. The first launch downloads Wine and sets things up, which takes a few minutes. Later launches are quick.
 
 If macOS still blocks the app, open System Settings, go to Privacy & Security, and click Open Anyway.
+
+Check for Updates installs the `.zip` from that same release. The disk image is for the first install.
 
 Xbox controllers already work. DualSense, DualSense Edge, and DualShock 4 pads are mapped so the game treats them as Xbox controllers. The button icons stay Xbox.
 
